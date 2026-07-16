@@ -5,8 +5,11 @@
     <key>Label</key>
     <string>com.jaewon.stock-alert</string>
 
+    <!-- caffeinate -i: 봇이 도는 동안만 맥 유휴 잠자기 방지 (sudo 불필요, 봇 종료 시 자동 해제) -->
     <key>ProgramArguments</key>
     <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-i</string>
         <string>/Users/jaewon/stock-alert/.venv/bin/python</string>
         <string>-m</string>
         <string>src.main</string>
