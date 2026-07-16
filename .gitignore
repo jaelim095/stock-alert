@@ -1,0 +1,13 @@
+# 비밀정보·런타임 상태 (절대 커밋 금지)
+.env
+secrets/
+data/
+logs/
+
+# 로컬 도구·빌드 산출물
+.omc/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
