@@ -21,7 +21,7 @@ KAKAO_TOKENS_PATH = os.getenv("KAKAO_TOKENS_PATH", "./data/kakao_tokens.json")
 
 # 이메일
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "")  # 앱 비밀번호는 공백 없이
 ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO", "")
 
 # 동작 설정

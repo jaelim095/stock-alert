@@ -125,7 +125,10 @@ class KISClient:
                     "trade_date": _fmt_date(row.get("ord_dt", "")),
                     "ticker": str(row.get("pdno", "")).upper(),
                     "name": row.get("prdt_name", ""),
-                    "side": "매도" if str(row.get("sll_buy_dvsn_cd")) == "01" else "매수",
+                    # 실측 확인(2026-07): sll_buy_dvsn_cd 01=매도, 02=매수.
+                    # 이름 필드를 우선 신뢰하고 코드는 폴백.
+                    "side": "매도" if "매도" in str(row.get("sll_buy_dvsn_cd_name") or "")
+                            or str(row.get("sll_buy_dvsn_cd")) == "01" else "매수",
                     "price": price,
                     "qty": qty,
                     "amount": float(row.get("ft_ccld_amt3") or 0) or round(price * qty, 2),
