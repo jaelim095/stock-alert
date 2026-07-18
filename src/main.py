@@ -114,13 +114,16 @@ def watch_and_alert(kis, sheets, notifier):
     for m in messages:
         res = notifier.send(f"[stock-alert] {m['ticker']} 매매 알림", m["text"])
         result = ", ".join(f"{k}:{v}" for k, v in res.items())
+        sent = [label for key, label in (("kakao", "카카오"), ("email", "이메일"))
+                if not str(res.get(key, "")).startswith(("생략", "꺼짐", "미설정"))]
+        channel = "+".join(sent) or "없음"
         for a in m["alerts"]:
             log_rows.append({
                 "sent_at": now.isoformat(timespec="seconds"),
                 "ticker": a["ticker"], "lot_id": a["lot_id"],
                 "condition": a["condition"], "base_price": a["base_price"],
                 "price": a["price"], "change_pct": round(a["change_pct"], 2),
-                "message": m["text"], "channel": "카카오+이메일", "result": result,
+                "message": m["text"], "channel": channel, "result": result,
             })
         _log(f"알림 발송 {m['ticker']}: {len(m['alerts'])}건 ({result})")
     # alert_state 저장이 로그보다 우선 — 저장 실패 시 재발송되는 쪽이 낫고,

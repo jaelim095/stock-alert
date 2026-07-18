@@ -24,6 +24,8 @@ KAKAO_TOKENS_PATH = os.getenv("KAKAO_TOKENS_PATH", "./data/kakao_tokens.json")
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "")  # 앱 비밀번호는 공백 없이
 ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO", "")
+# always=카톡과 항상 병행 / fallback=카톡 실패 시에만 / off=이메일 알림 안 씀
+ALERT_EMAIL_MODE = os.getenv("ALERT_EMAIL_MODE", "always").strip().lower()
 
 # 동작 설정
 POLL_INTERVAL_MIN = int(os.getenv("POLL_INTERVAL_MIN", "5"))

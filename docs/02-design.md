@@ -9,7 +9,7 @@
 - 실행 환경: 사용자 맥에서 상시 구동. launchd LaunchAgent(`deploy/com.jaewon.stock-alert.plist`)로 부팅 시 자동 시작, 비정상 종료 시 자동 재시작
 - 데이터 소스: 한국투자증권 오픈API 조회 전용. 주문/정정/취소 API는 어떤 경우에도 사용하지 않는다
 - 기록 저장소: 구글시트 1개 문서, 4개 탭. 시트가 유일한 상태 저장소(source of truth)이며 사용자가 직접 수정할 수 있다
-- 알림 채널: 카카오톡 나에게 보내기 + Gmail 동시 발송. 카카오 토큰 갱신 실패 시 이메일로 "재로그인 필요" 경고 후 이메일 단독 운행
+- 알림 채널: 카카오톡 나에게 보내기 메인. 이메일은 `ALERT_EMAIL_MODE`로 제어 — always(항상 병행) / fallback(카톡 실패 시에만) / off. 2026-07-18 사용자 결정으로 기본 fallback 운영. 카카오 토큰 갱신 실패 시 이메일로 "재로그인 필요" 경고는 모드와 무관하게 발송
 - 매도-lot 매칭: 수량이 정확히 일치하는 lot 우선(복수면 최신) → 없으면 LIFO 분할 소진
 - 알림 반복: 조건별 최초 1회 + 조건 미해소 시 24시간마다 리마인드. 하락 방향은 -10%/-20%/-30% 계단식(단계마다 새 알림)
 
@@ -125,7 +125,7 @@
 ### 채널
 
 - 카카오톡: `POST https://kapi.kakao.com/v2/api/talk/memo/default/send` (text 템플릿). access token 12시간 / refresh token 60일 — 발송 전 만료 확인, 갱신 응답에 새 refresh_token이 오면 `KAKAO_TOKENS_PATH` 파일 교체 저장
-- 이메일: Gmail SMTP(앱 비밀번호). 카카오와 항상 병행 발송
+- 이메일: Gmail SMTP(앱 비밀번호). `ALERT_EMAIL_MODE`에 따라 발송 — 현재 fallback(카톡 성공 시 생략, 실패 시에만 발송)
 - 카카오 토큰 갱신 실패 → 이메일 제목 "[stock-alert] 카카오 재로그인 필요" 경고 발송
 
 ## 7. KIS API 사용

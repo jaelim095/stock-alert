@@ -25,9 +25,21 @@ class Notifier:
         self.tokens_path = Path(config.KAKAO_TOKENS_PATH)
 
     def send(self, subject, text):
-        """카카오+이메일 동시 발송. 반환: {"kakao": 결과, "email": 결과}"""
-        return {"kakao": self._send_kakao(text),
-                "email": self._send_email(subject, text)}
+        """알림 발송. 반환: {"kakao": 결과, "email": 결과}
+
+        이메일은 ALERT_EMAIL_MODE에 따라: always=항상 병행,
+        fallback=카톡 실패 시에만(무음 단절 방지), off=안 보냄.
+        """
+        res = {"kakao": self._send_kakao(text)}
+        mode = config.ALERT_EMAIL_MODE
+        kakao_ok = res["kakao"] == "성공"
+        if mode == "always" or (mode == "fallback" and not kakao_ok):
+            res["email"] = self._send_email(subject, text)
+        elif mode == "fallback":
+            res["email"] = "생략(카톡 성공)"
+        else:
+            res["email"] = "꺼짐"
+        return res
 
     def _load_tokens(self):
         return json.loads(self.tokens_path.read_text())
