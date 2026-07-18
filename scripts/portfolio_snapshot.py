@@ -78,6 +78,15 @@ def main():
     else:
         print("- (없음)")
 
+    thesis = sc.read_thesis()
+    print(f"\n## 투자논리 ({len(thesis)}건)\n")
+    if thesis:
+        for t in thesis:
+            print(f"- {t['ticker']}: 이유={t['reason']} | 가정={t['assumption']} "
+                  f"| 무효화={t['invalidation']} (점검 {t['last_checked'] or '-'})")
+    else:
+        print("- (미기록 — 투자논리 탭이 비어 있음)")
+
     lots = [l for l in sc.read_lots() if l["status"] == lot_engine.ST_ACTIVE]
     print(f"\n## 활성 감시 lot ({len(lots)}개)\n")
     for l in lots:

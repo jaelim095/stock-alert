@@ -39,12 +39,18 @@ SETTING_COLS = [
     ("종목코드", "ticker"), ("거래소", "excd"), ("하락임계%", "drop_pct"),
     ("상승임계%", "rise_pct"), ("감시", "enabled"), ("메모", "memo"),
 ]
+TAB_THESIS = "투자논리"
+THESIS_COLS = [
+    ("종목코드", "ticker"), ("매수 이유", "reason"), ("핵심 가정", "assumption"),
+    ("무효화 조건", "invalidation"), ("작성일", "created_at"), ("최근점검일", "last_checked"),
+]
 
 HEADERS = {
     TAB_TRADES: [h for h, _ in TRADE_COLS],
     TAB_LOTS: [h for h, _ in LOT_COLS],
     TAB_ALERTS: [h for h, _ in ALERT_COLS],
     TAB_SETTINGS: [h for h, _ in SETTING_COLS],
+    TAB_THESIS: [h for h, _ in THESIS_COLS],
 }
 
 
@@ -203,3 +209,26 @@ class SheetClient:
                 "memo": r["memo"],
             }
         return out
+
+    # ── 투자논리 ─────────────────────────────────────────
+
+    def read_thesis(self):
+        """투자논리 행 목록. 탭이 아직 없으면 빈 목록 (init_sheet 전 호환)."""
+        try:
+            return self._rows(TAB_THESIS, THESIS_COLS)
+        except gspread.exceptions.WorksheetNotFound:
+            return []
+
+    def append_thesis(self, rows):
+        self._append(TAB_THESIS, THESIS_COLS, rows)
+
+    def update_thesis_checked(self, ticker, date_str):
+        """해당 종목 행의 최근점검일 갱신. 행이 없으면 False."""
+        values, keys = self._read(TAB_THESIS, THESIS_COLS)
+        tc = keys.index("ticker")
+        for i, raw in enumerate(values[1:], start=2):
+            if tc < len(raw) and raw[tc].strip().upper() == str(ticker).upper():
+                _retry(self._ws(TAB_THESIS).update_cell,
+                       i, keys.index("last_checked") + 1, date_str)
+                return True
+        return False
