@@ -3,6 +3,7 @@
 secrets/
 data/
 logs/
+reports/
 
 # 로컬 도구·빌드 산출물
 .omc/
