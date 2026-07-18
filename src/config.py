@@ -17,6 +17,7 @@ SHEET_ID = os.getenv("SHEET_ID", "")
 
 # 카카오톡
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "")
+KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")  # Client Secret 사용 시에만
 KAKAO_TOKENS_PATH = os.getenv("KAKAO_TOKENS_PATH", "./data/kakao_tokens.json")
 
 # 이메일

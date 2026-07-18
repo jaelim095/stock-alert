@@ -41,29 +41,39 @@
 2. `내 애플리케이션 > 애플리케이션 추가하기` → 앱 이름 예: `stock-alert` (아무거나 가능)
 3. 만든 앱 선택 → `앱 키` 메뉴에서 REST API 키 복사 → `.env`의 `KAKAO_REST_API_KEY`에 사용
 4. `제품 설정 > 카카오 로그인` → 활성화 ON
-5. 같은 화면의 Redirect URI에 `http://localhost:8080` 등록
-6. `제품 설정 > 카카오 로그인 > 동의항목` → "카카오톡 메시지 전송(talk_message)" 을 선택 동의로 설정
+5. Redirect URI에 `http://localhost:8080` 등록 — 콘솔 개편 후 위치는 `앱 > 플랫폼 키`의
+   REST API 키 섹션 안 "리다이렉트 URI" 영역이다 (끝에 `/` 붙이지 말 것, KOE006 원인)
+6. `제품 설정 > 카카오 로그인 > 동의항목` → "카카오톡 메시지 전송(talk_message)" 을 선택 동의로 설정.
+   반드시 8번(브라우저 로그인) 전에 끝낼 것 — 동의항목 설정 전에 로그인하면 메시지 권한 없이
+   앱만 연결되고, 발송 시 403(-402 insufficient scopes)이 난다. 그 경우 다시 로그인해 추가 동의하면 된다
+7. `제품 설정 > 카카오 로그인 > 보안`에서 Client Secret을 활성화했다면 그 값을 `.env`의
+   `KAKAO_CLIENT_SECRET`에 넣는다 (활성화 상태에서 이 값 없이 토큰 요청하면 KOE010 에러)
 
 이제 최초 1회 토큰을 발급받는다. 이 과정만 브라우저가 필요하고, 이후에는 봇이 자동 갱신한다.
 
-7. 브라우저 주소창에 아래 URL을 넣는다 (REST_API_KEY 부분 교체):
+8. 브라우저 주소창에 아래 URL을 넣는다 (REST_API_KEY 부분 교체):
 
 ```
 https://kauth.kakao.com/oauth/authorize?client_id=REST_API_KEY&redirect_uri=http://localhost:8080&response_type=code&scope=talk_message
 ```
 
-8. 동의하고 계속하기를 누르면 `http://localhost:8080/?code=XXXX...` 로 이동하며 "연결할 수 없음" 페이지가 뜬다. 정상이다. 주소창에서 `code=` 뒤의 값을 복사한다.
-9. 터미널에서 인가 코드를 토큰으로 교환한다 (코드는 발급 후 몇 분 안에 1회만 사용 가능):
+   동의 화면에 "카카오톡 메시지 전송" 체크가 보이는지 확인하고 동의한다.
+9. 동의하고 계속하기를 누르면 `http://localhost:8080/?code=XXXX...` 로 이동하며 "연결할 수 없음" 페이지가 뜬다. 정상이다. 주소창에서 `code=` 뒤의 값을 복사한다.
+   (코드를 손으로 옮기다 글자를 잘못 읽으면 KOE320이 난다. 실수를 피하려면 8080 포트에
+   임시 수신 서버를 띄워 자동으로 받는 방법도 있다 — 최초 세팅 때 그렇게 진행했다)
+10. 터미널에서 인가 코드를 토큰으로 교환한다 (코드는 발급 후 몇 분 안에 1회만 사용 가능,
+    Client Secret 활성화 시 `-d client_secret=값` 줄 추가):
 
 ```
 curl -X POST https://kauth.kakao.com/oauth/token \
   -d grant_type=authorization_code \
   -d client_id=REST_API_KEY \
+  -d client_secret=CLIENT_SECRET값_활성화시에만 \
   -d redirect_uri=http://localhost:8080 \
   -d code=복사한_코드
 ```
 
-10. 응답 JSON의 access_token과 refresh_token을 `data/kakao_tokens.json` 파일로 저장한다:
+11. 응답 JSON의 access_token과 refresh_token을 `data/kakao_tokens.json` 파일로 저장한다:
 
 ```
 {
@@ -78,7 +88,7 @@ mkdir -p data && vi data/kakao_tokens.json   # 위 내용 붙여넣기
 
 참고: access token은 12시간, refresh token은 60일 유효하다.
 봇이 돌아가는 동안에는 자동으로 갱신하며 파일도 알아서 덮어쓴다.
-단, 봇이 2개월 이상 꺼져 있었다면 refresh token이 만료되므로 7~10번을 다시 하면 된다.
+단, 봇이 2개월 이상 꺼져 있었다면 refresh token이 만료되므로 8~11번을 다시 하면 된다.
 그 경우 봇이 이메일로 "[stock-alert] 카카오 재로그인 필요" 경고를 보내준다.
 
 ## 3. 구글시트 + 서비스 계정 (약 20분)

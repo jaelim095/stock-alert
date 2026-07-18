@@ -36,11 +36,14 @@ class Notifier:
         tok = self._load_tokens()
         if tok.get("expires_at", 0) > time.time() + 60:
             return tok["access_token"]
-        r = requests.post(KAKAO_TOKEN_URL, data={
+        payload = {
             "grant_type": "refresh_token",
             "client_id": config.KAKAO_REST_API_KEY,
             "refresh_token": tok["refresh_token"],
-        }, timeout=10)
+        }
+        if config.KAKAO_CLIENT_SECRET:  # 앱에 Client Secret이 켜져 있으면 필수
+            payload["client_secret"] = config.KAKAO_CLIENT_SECRET
+        r = requests.post(KAKAO_TOKEN_URL, data=payload, timeout=10)
         r.raise_for_status()
         d = r.json()
         tok["access_token"] = d["access_token"]
