@@ -45,7 +45,7 @@ st.set_page_config(page_title="Jaewon's Stock Dashboard", page_icon="📈", layo
 
 st.markdown(f"""
 <style>
-.block-container {{ padding-top: 1.4rem; max-width: 1250px; }}
+.block-container {{ padding-top: 3.6rem; max-width: 1250px; }}  /* 고정 헤더에 제목이 가리지 않게 */
 .stTabs [data-baseweb="tab"] p {{ font-size: .98rem; font-weight: 600; }}
 [data-testid="stSidebar"] {{ border-right: 1px solid {LINE}; }}
 h3 {{ letter-spacing: -.01em; }}
