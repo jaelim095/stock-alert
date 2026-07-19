@@ -195,6 +195,9 @@ class SheetClient:
     def append_alerts(self, alerts):
         self._append(TAB_ALERTS, ALERT_COLS, alerts)
 
+    def read_alerts(self):
+        return self._rows(TAB_ALERTS, ALERT_COLS)
+
     def read_settings(self):
         """{ticker: {excd, drop_pct|None, rise_pct|None, enabled, memo}}"""
         out = {}

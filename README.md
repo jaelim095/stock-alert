@@ -18,6 +18,15 @@
 4. `python -m src.main --once` — 1회 실행 테스트
 5. launchd 등록(가이드 8절)으로 상시 구동
 
+## 대시보드 (로컬 웹)
+
+```
+.venv/bin/streamlit run dashboard/app.py   # 저장소 루트에서
+```
+
+http://localhost:8501 — 보유 현황·실질 노출·종목별 판정(체크업)·투자논리·알림/매매 이력.
+localhost 전용. 계좌 정보가 표시되므로 외부에 배포하지 않는다.
+
 ## 문서
 
 - 설계: `docs/02-design.md`

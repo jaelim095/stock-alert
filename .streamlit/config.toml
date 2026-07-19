@@ -1,0 +1,12 @@
+# 대시보드는 localhost 전용 — 계좌 정보가 표시되므로 외부에 열지 않는다
+[server]
+address = "localhost"
+port = 8501
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#5B5FC7"

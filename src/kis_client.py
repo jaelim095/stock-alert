@@ -150,3 +150,26 @@ class KISClient:
         _, d = self._get("/uapi/overseas-price/v1/quotations/price", TR_PRICE,
                          {"AUTH": "", "EXCD": excd, "SYMB": symb})
         return float((d.get("output") or {}).get("last") or 0)
+
+    def fetch_holdings(self):
+        """미국 보유 종목 잔고 (조회 전용). 평가액 내림차순."""
+        params = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt,
+                  "OVRS_EXCG_CD": "NASD", "TR_CRCY_CD": "USD",
+                  "CTX_AREA_FK200": "", "CTX_AREA_NK200": ""}
+        _, d = self._get("/uapi/overseas-stock/v1/trading/inquire-balance",
+                         {"prod": "TTTS3012R", "vps": "VTTS3012R"}[self.env], params)
+        out = []
+        for row in d.get("output1") or []:
+            qty = float(row.get("ovrs_cblc_qty") or 0)
+            if qty <= 0:
+                continue
+            out.append({
+                "ticker": row.get("ovrs_pdno", ""),
+                "name": row.get("ovrs_item_name", ""),
+                "qty": qty,
+                "avg": float(row.get("pchs_avg_pric") or 0),
+                "now": float(row.get("now_pric2") or 0),
+                "value": float(row.get("ovrs_stck_evlu_amt") or 0),
+                "pnl_pct": float(row.get("evlu_pfls_rt") or 0),
+            })
+        return sorted(out, key=lambda x: -x["value"])

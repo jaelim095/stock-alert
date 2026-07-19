@@ -11,6 +11,9 @@
    평가 + 포트폴리오 진단. 요청 시에만 실행, 리포트는 `reports/`(git 제외).
    데이터는 `scripts/portfolio_snapshot.py`(조회 전용)로 주입
 3. 결정 층: 사람. 주문은 항상 사용자가 직접
+4. 표시 층 (`dashboard/app.py`, Streamlit): 위 층들이 만든 데이터를 보여주는 로컬 웹.
+   실행 `.venv/bin/streamlit run dashboard/app.py` (저장소 루트에서) → http://localhost:8501
+   localhost 전용(.streamlit/config.toml) — 계좌 정보 표시되므로 외부 배포 금지
 
 ## 필독 문서
 

@@ -37,6 +37,9 @@ ENABLE_DAY_MARKET = os.getenv("ENABLE_DAY_MARKET", "false").lower() == "true"
 KIS_TOKEN_PATH = "./data/kis_token.json"
 PROCESSED_ORDERS_PATH = "./data/processed_orders.json"  # lot 반영 완료 주문 캐시 (2차 dedupe)
 
+# 레버리지 ETF → 기초자산 (실질 노출 합산·기초자산 분석용)
+UNDERLYING_MAP = {"TSLL": "TSLA", "METU": "META", "IRE": "IREN"}
+
 def account_parts():
     """계좌번호를 (앞 8자리, 뒤 2자리)로 분리."""
     cano, _, prdt = KIS_ACCOUNT_NO.partition("-")

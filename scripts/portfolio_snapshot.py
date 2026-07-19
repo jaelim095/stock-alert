@@ -20,27 +20,6 @@ from src.kis_client import KISClient  # noqa: E402
 from src.sheet_client import SheetClient  # noqa: E402
 
 
-def fetch_holdings(k):
-    params = {"CANO": k.cano, "ACNT_PRDT_CD": k.prdt, "OVRS_EXCG_CD": "NASD",
-              "TR_CRCY_CD": "USD", "CTX_AREA_FK200": "", "CTX_AREA_NK200": ""}
-    _, d = k._get("/uapi/overseas-stock/v1/trading/inquire-balance", "TTTS3012R", params)
-    out = []
-    for row in d.get("output1") or []:
-        qty = float(row.get("ovrs_cblc_qty") or 0)
-        if qty <= 0:
-            continue
-        out.append({
-            "ticker": row.get("ovrs_pdno", ""),
-            "name": row.get("ovrs_item_name", ""),
-            "qty": qty,
-            "avg": float(row.get("pchs_avg_pric") or 0),
-            "now": float(row.get("now_pric2") or 0),
-            "value": float(row.get("ovrs_stck_evlu_amt") or 0),
-            "pnl_pct": row.get("evlu_pfls_rt", ""),
-        })
-    return sorted(out, key=lambda x: -x["value"])
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trades", type=int, default=20, help="최근 매매 표시 건수")
@@ -51,7 +30,7 @@ def main():
 
     k = KISClient(config.KIS_APP_KEY, config.KIS_APP_SECRET,
                   config.KIS_ACCOUNT_NO, config.KIS_ENV, config.KIS_TOKEN_PATH)
-    holdings = fetch_holdings(k)
+    holdings = k.fetch_holdings()
     total = sum(h["value"] for h in holdings)
 
     print(f"## 보유 종목 (미국, {len(holdings)}개 · 평가 총액 ${total:,.0f})\n")
