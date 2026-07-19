@@ -9,6 +9,7 @@
 - 색상: 한국 관례(상승 빨강·하락 파랑) + 부호 병기(색만으로 구분하지 않음).
 - "분석 갱신" 버튼: scripts/run_checkup.sh 로 /checkup 을 헤드리스 재실행 (수 분 소요).
 """
+import html as html_mod
 import json
 import re
 import shutil
@@ -145,6 +146,64 @@ def verdict_pill(verdict, conf=None):
     return (f"<span style='background:{bg};color:{fg};border-radius:999px;"
             f"padding:4px 14px;font-size:.9rem;font-weight:700'>판정: {verdict}</span>"
             + conf_html)
+
+
+def md_safe(text):
+    """리포트 마크다운 안전 렌더링: 335~384 같은 범위 표기가 취소선(~)으로 깨지는 것 방지."""
+    return text.replace("~", "\\~")
+
+
+def _esc(s, limit=None):
+    s = html_mod.escape(str(s or ""))
+    return (s[:limit] + "…") if limit and len(s) > limit else s
+
+
+HEALTH_PILL = {"우수": ("#1E7F4F", "#E6F4EC"), "양호": ("#2B6CB0", "#E8F0FB"),
+               "조정": ("#9A6700", "#FFF3DC"), "위험": ("#B42318", "#FEE4E2")}
+
+
+def parse_checkup(text):
+    """체크업 리포트 → 판정 카드용 구조 데이터 (LLM 산출물이라 best-effort 추출)."""
+    items = []
+    for m in re.finditer(r"^## ([A-Z]{2,6})\b", text, re.M):
+        tk = m.group(1)
+        sec = report_section(text, tk)
+        v, c = verdict_of(sec)
+        if not v:
+            continue
+        reason = re.search(r"^-\s*근거[^:：\n]*[:：]\s*(.+)$", sec, re.M)
+        counter = re.search(r"반대 논거[:：]\s*(.+)$", sec, re.M)
+        buy = re.search(r"오늘[^\n]*사겠는가[:：]?\s*\**\s*(예|아니오)", sec)
+        items.append({"ticker": tk, "verdict": v, "conf": c, "sec": sec,
+                      "reason": reason.group(1).strip() if reason else "",
+                      "counter": counter.group(1).strip() if counter else "",
+                      "buy": buy.group(1) if buy else None})
+    # 리포트마다 헤더 레벨(#/##)이 달라서 같은 레벨의 다음 헤더 전까지 매칭
+    port = re.search(r"^(#{1,2}) 포트폴리오.*?(?=^\1 |\Z)", text, re.M | re.S)
+    health = re.search(r"건강도[:：]\s*\**\s*([^\n*#]+)", text)
+    action = re.search(r"최우선 조치[^:：\n]*[:：]\s*\**\s*([^\n]+)", text)
+    return items, (port.group(0).strip() if port else None), \
+        (health.group(1).strip() if health else None), \
+        (action.group(1).strip() if action else None)
+
+
+def verdict_card(v):
+    key = next((k for k in VERDICT_PILL if v["verdict"].startswith(k)), None)
+    fg, bg = VERDICT_PILL.get(key, ("#555B6E", "#EEEFF4"))
+    buy = {"예": "🟢 예", "아니오": "⚪ 아니오"}.get(v["buy"], "-")
+    return (
+        f"<div style='flex:1 1 300px;max-width:430px;background:#fff;border:1px solid {LINE};"
+        f"border-left:5px solid {fg};border-radius:12px;padding:13px 16px;"
+        f"box-shadow:0 1px 3px rgba(20,24,60,.05)'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:5px'>"
+        f"<span style='font-weight:800;font-size:1.05rem;color:{INK}'>{_esc(v['ticker'])}</span>"
+        f"<span style='background:{bg};color:{fg};border-radius:999px;padding:2px 11px;"
+        f"font-size:.78rem;font-weight:700;white-space:nowrap'>{_esc(v['verdict'], 22)}</span></div>"
+        f"<div style='color:{MUTED};font-size:.76rem;margin-bottom:7px'>"
+        f"확신도 {_esc(v['conf'] or '-')} · 오늘 처음 봐도 산다: {buy}</div>"
+        f"<div style='font-size:.84rem;color:{INK};line-height:1.5'>{_esc(v['reason'], 95)}</div>"
+        f"<div style='font-size:.78rem;color:{MUTED};margin-top:7px;line-height:1.45'>"
+        f"반대 논거: {_esc(v['counter'], 85)}</div></div>")
 
 
 def pnl_style(v):
@@ -377,13 +436,13 @@ with tab_detail:
         st.subheader("최근 판정 (체크업)")
         if sec:
             st.caption(f"출처: {sec_src} (이 종목의 가장 최근 판정)")
-            st.markdown(sec)
+            st.markdown(md_safe(sec))
         else:
             st.caption("판정 없음 — 사이드바 '판정 새로 받기' 또는 /checkup 실행 시 생성됩니다.")
         er = latest_report(f"earnings-{sel}-")
         if er:
             with st.expander(f"실적 리뷰: {er.name}"):
-                st.markdown(er.read_text())
+                st.markdown(md_safe(er.read_text()))
 
     st.subheader("이 종목의 알림 이력")
     al = [a for a in sheet["alerts"] if a.get("ticker") == sel]
@@ -412,8 +471,45 @@ with tab_detail:
 
 with tab_report:
     files = sorted(REPORTS.glob("*.md"), reverse=True)
-    if files:
-        pick = st.selectbox("리포트 선택", files, format_func=lambda p: p.name)
-        st.markdown(pick.read_text())
-    else:
+    if not files:
         st.caption("저장된 리포트 없음 — /checkup 또는 /earnings 실행 시 생성됩니다.")
+    else:
+        pick = st.selectbox("리포트 선택", files, format_func=lambda p: p.name)
+        text = pick.read_text()
+        items, port, health, action = ([], None, None, None)
+        if pick.name.startswith("checkup-"):
+            items, port, health, action = parse_checkup(text)
+        if items:
+            hkey = next((k for k in HEALTH_PILL if health and health.startswith(k)), None)
+            hfg, hbg = HEALTH_PILL.get(hkey, ("#555B6E", "#EEEFF4"))
+            counts = {}
+            for v in items:
+                key = next((k for k in VERDICT_PILL if v["verdict"].startswith(k)), "기타")
+                counts[key] = counts.get(key, 0) + 1
+            chips = " · ".join(f"{k} {n}" for k, n in counts.items())
+            st.markdown(
+                f"<div style='background:#fff;border:1px solid {LINE};border-radius:14px;"
+                f"padding:15px 18px;margin:6px 0 14px;box-shadow:0 1px 3px rgba(20,24,60,.05)'>"
+                f"<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px'>"
+                f"<span style='font-weight:800;font-size:1.15rem;color:{INK}'>판정 요약 — {len(items)}종목</span>"
+                f"<span style='background:{hbg};color:{hfg};border-radius:999px;padding:4px 14px;"
+                f"font-weight:700;font-size:.88rem'>건강도: {_esc(health or '미기재')}</span>"
+                f"<span style='color:{MUTED};font-size:.82rem'>{chips}</span></div>"
+                f"<div style='color:{INK};font-size:.9rem'><b>최우선 조치</b> · "
+                f"{_esc(action or '미기재', 170)}</div></div>",
+                unsafe_allow_html=True)
+            st.markdown("<div style='display:flex;gap:12px;flex-wrap:wrap'>"
+                        + "".join(verdict_card(v) for v in items) + "</div>",
+                        unsafe_allow_html=True)
+            st.markdown("")
+            if port:
+                with st.expander("포트폴리오 차원 진단 (전문)"):
+                    st.markdown(md_safe(port))
+            sel_t = st.selectbox("종목별 상세 판정 펼쳐보기",
+                                 ["선택 안 함"] + [v["ticker"] for v in items])
+            if sel_t != "선택 안 함":
+                st.markdown(md_safe(next(v["sec"] for v in items if v["ticker"] == sel_t)))
+            with st.expander("리포트 원문 전체"):
+                st.markdown(md_safe(text))
+        else:
+            st.markdown(md_safe(text))
