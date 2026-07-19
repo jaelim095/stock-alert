@@ -10,3 +10,6 @@ gatherUsageStats = false
 [theme]
 base = "light"
 primaryColor = "#5B5FC7"
+backgroundColor = "#FAFBFD"
+secondaryBackgroundColor = "#F1F2F8"
+textColor = "#1A1D27"
