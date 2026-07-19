@@ -13,12 +13,15 @@ if [ -f "$LOCK" ]; then
   fi
 fi
 
+TICKERS="$*"                       # 인자로 종목 지정 시 그 종목만 갱신 (예: TSLA PLTR)
+PROMPT="/checkup${TICKERS:+ $TICKERS}"
+
 echo "$$:$(date +%s)" > "$LOCK"
-echo "{\"state\":\"running\",\"started_at\":\"$(date '+%Y-%m-%d %H:%M')\"}" > "$STATUS"
+echo "{\"state\":\"running\",\"started_at\":\"$(date '+%Y-%m-%d %H:%M')\",\"tickers\":\"$TICKERS\"}" > "$STATUS"
 
 # bypassPermissions: 무인 실행이라 도구 허용 프롬프트에 답할 수 없음.
 # 이 저장소는 조회 전용 설계이고 스크립트는 로컬에서만 호출된다.
-claude -p "/checkup" --permission-mode bypassPermissions > logs/checkup_run.log 2>&1
+claude -p "$PROMPT" --permission-mode bypassPermissions > logs/checkup_run.log 2>&1
 rc=$?
 
 echo "{\"state\":\"done\",\"exit\":$rc,\"finished_at\":\"$(date '+%Y-%m-%d %H:%M')\"}" > "$STATUS"

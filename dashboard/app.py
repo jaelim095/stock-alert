@@ -111,6 +111,21 @@ def latest_report(prefix):
     return files[-1] if files else None
 
 
+def checkup_texts():
+    """체크업 리포트 전부 (최신순) [(파일명, 내용)]."""
+    return [(f.name, f.read_text())
+            for f in sorted(REPORTS.glob("checkup-*.md"), reverse=True)]
+
+
+def latest_section(texts, ticker):
+    """종목별 가장 최근 판정 섹션 — 부분 갱신 리포트들을 병합해 찾는다."""
+    for name, text in texts:
+        sec = report_section(text, ticker)
+        if sec:
+            return sec, name
+    return None, None
+
+
 def verdict_of(section):
     """섹션 헤더에서 '판정: X (확신도: Y)' 추출 → (판정, 확신도)."""
     if not section:
@@ -197,14 +212,21 @@ st.sidebar.divider()
 st.sidebar.markdown("**분석 갱신**")
 running, run_info = checkup_status()
 if running:
-    st.sidebar.info(f"체크업 실행 중 ({run_info.get('started_at', '')} 시작)\n\n"
+    target = run_info.get("tickers") or "자동 선정"
+    st.sidebar.info(f"체크업 실행 중 — 대상: {target}\n\n({run_info.get('started_at', '')} 시작) "
                     "완료까지 수 분 걸립니다. 잠시 후 '데이터 새로고침'을 누르세요.")
 else:
+    try:
+        _opts = [x["ticker"] for x in load_holdings()]
+    except Exception:
+        _opts = []
+    sel_tickers = st.sidebar.multiselect(
+        "갱신할 종목 (비우면 자동 선정: 상위 6 + 감시)", _opts)
     if st.sidebar.button("판정 새로 받기 (/checkup)", width="stretch"):
         if not shutil.which("claude"):
             st.sidebar.error("claude CLI를 찾을 수 없습니다. 터미널에서 /checkup을 실행하세요.")
         else:
-            subprocess.Popen(["bash", str(ROOT / "scripts/run_checkup.sh")],
+            subprocess.Popen(["bash", str(ROOT / "scripts/run_checkup.sh"), *sel_tickers],
                              cwd=ROOT, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
             time.sleep(1)
@@ -234,7 +256,7 @@ except Exception as e:
 total_value = sum(h["value"] for h in holdings)
 total_cost = sum(h["avg"] * h["qty"] for h in holdings)
 total_pnl = (total_value / total_cost - 1) * 100 if total_cost else 0.0
-checkup_text = checkup_file.read_text() if checkup_file else ""
+checkup_docs = checkup_texts()  # 종목별 최신 판정을 리포트들에서 병합
 
 
 # ── 헤더 ─────────────────────────────────────────────────────
@@ -266,7 +288,7 @@ with tab_pf:
     if not df.empty:
         df["비중%"] = (df["value"] / (total_value or 1) * 100).round(1)
         df["판정"] = [
-            (verdict_of(report_section(checkup_text, t))[0] or "") for t in df["ticker"]]
+            (verdict_of(latest_section(checkup_docs, t)[0])[0] or "") for t in df["ticker"]]
         view = df.rename(columns={"ticker": "종목", "name": "이름", "qty": "수량",
                                   "avg": "평단$", "now": "현재$", "value": "평가$",
                                   "pnl_pct": "손익%"})
@@ -308,7 +330,7 @@ with tab_detail:
     h = next(x for x in holdings if x["ticker"] == sel)
     weight = h["value"] / (total_value or 1) * 100
 
-    sec = report_section(checkup_text, sel)
+    sec, sec_src = latest_section(checkup_docs, sel)
     verdict, conf = verdict_of(sec)
     title_html = (f"<span style='font-size:1.5rem;font-weight:800;color:{INK}'>{sel}</span>"
                   f"<span style='color:{MUTED};margin-left:10px'>{h['name']}</span>")
@@ -354,7 +376,7 @@ with tab_detail:
     with right:
         st.subheader("최근 판정 (체크업)")
         if sec:
-            st.caption(f"출처: {checkup_file.name}")
+            st.caption(f"출처: {sec_src} (이 종목의 가장 최근 판정)")
             st.markdown(sec)
         else:
             st.caption("판정 없음 — 사이드바 '판정 새로 받기' 또는 /checkup 실행 시 생성됩니다.")

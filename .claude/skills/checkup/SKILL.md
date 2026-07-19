@@ -155,7 +155,10 @@ ETF 고유 리스크(항상 명시): 일일 리밸런싱 감쇠(횡보장에서 
 
 ### 8. 리포트 저장·전달
 
-- 전문을 `reports/checkup-YYYY-MM-DD.md`로 저장 (reports/는 git 제외 — 계좌 정보 포함)
+- 전문을 `reports/checkup-YYYY-MM-DD-HHMM.md`로 저장 (reports/는 git 제외 — 계좌 정보 포함).
+  파일명에 시각(HHMM)을 넣어 같은 날 재실행이 이전 리포트를 덮어쓰지 않게 한다.
+  종목을 지정한 부분 실행이면 분석한 종목 섹션만 담는다 — 대시보드가 종목별로
+  가장 최근 섹션을 병합해 표시하므로 나머지 종목 판정은 유지된다
 - 대화에는 요약(종목별 판정 표 + 포트폴리오 진단)만 출력
 - 사용자가 이메일 발송을 원하면:
   `.venv/bin/python -c "from src.notifier import Notifier; Notifier()._send_email('[stock-alert] 체크업 요약', open('reports/checkup-….md').read())"`
