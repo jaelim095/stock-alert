@@ -34,6 +34,7 @@
 
 - GitHub: https://github.com/jaelim095/stock-alert (private, 기본 브랜치 main)
 - 커밋 신원은 이 저장소 전용 설정(`Jaewon <jaelim095@gmail.com>`). 전역 git 설정은 건드리지 않았다.
+- 커밋 메시지는 영어로 작성한다 (2026-07-20 사용자 지시. 이전 한국어 커밋은 그대로 둠).
 
 ## 안전 규칙 (절대 준수)
 
