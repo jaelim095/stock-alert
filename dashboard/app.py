@@ -11,6 +11,7 @@
 """
 import html as html_mod
 import json
+from concurrent.futures import ThreadPoolExecutor
 import re
 import shutil
 import subprocess
@@ -82,6 +83,50 @@ def load_sheet():
         "alerts": sc.read_alerts(),
         "trades": sc.read_trades(),
     }
+
+
+def ma_stats(closes):
+    """종가(최신순) → 이동평균 지표. 데이터 부족 항목은 None. 순수 함수."""
+    def _ma(n, off=0):
+        seg = closes[off:off + n]
+        return sum(seg) / n if len(seg) == n else None
+    now = closes[0] if closes else None
+    m = {n: _ma(n) for n in (5, 20, 60, 120)}
+    arr = "-"
+    if all(m.values()):
+        if m[5] > m[20] > m[60] > m[120]:
+            arr = "정배열"
+        elif m[5] < m[20] < m[60] < m[120]:
+            arr = "역배열"
+        else:
+            arr = "혼조"
+    cross = ""
+    p20, p60 = _ma(20, 9), _ma(60, 9)
+    if m[20] and m[60] and p20 and p60:
+        if p20 - p60 <= 0 < m[20] - m[60]:
+            cross = "골든크로스"
+        elif p20 - p60 >= 0 > m[20] - m[60]:
+            cross = "데드크로스"
+    return {"now": now, "ma": m, "arr": arr, "cross": cross}
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def load_ma(holdings_key):
+    """보유 전 종목 이동평균. 일봉 기반이라 6시간 캐시, 보유 구성이 바뀌면
+    캐시 키가 달라져 자동 재계산 (매수 시 추가·전량 매도 시 제외).
+    4스레드 병렬 수집 — 호출당 0.2s 대기가 있어 유량 한도(초당 20건) 내."""
+    def one(tk, pref):
+        closes = []
+        for excd in [pref] + [e for e in ("NAS", "NYS", "AMS") if e != pref]:
+            try:
+                closes = kis().fetch_daily_closes(excd, tk)
+            except Exception:
+                closes = []
+            if len(closes) >= 20:
+                break
+        return tk, ma_stats(closes)
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        return dict(ex.map(lambda p: one(*p), holdings_key))
 
 
 # ── 순수 헬퍼 ────────────────────────────────────────────────
@@ -264,7 +309,8 @@ st.sidebar.markdown(f"<div style='font-weight:800;font-size:1.15rem;color:{INK}'
 st.sidebar.caption("조회 전용 · localhost")
 
 if st.sidebar.button("데이터 새로고침", width="stretch"):
-    st.cache_data.clear()
+    load_holdings.clear()   # 이동평균(일봉)은 6시간 캐시 유지 — 시세·시트만 갱신
+    load_sheet.clear()
     st.rerun()
 
 st.sidebar.divider()
@@ -370,6 +416,30 @@ with tab_pf:
                    + ", ".join(f"{r['방향']} {r['실질비중%']}%" for r in over)
                    + " — 체크업 자동 규칙 기준 축소 검토 대상")
 
+    st.subheader("이동평균 현황 (일봉 종가)")
+    ma_key = tuple((h["ticker"], h.get("excd", "NAS")) for h in holdings)
+    with st.spinner("이동평균 계산 중 — 최초 로딩만 수 초 걸립니다"):
+        ma_map = load_ma(ma_key)
+    ma_rows = []
+    for h in holdings:
+        s = ma_map.get(h["ticker"]) or {"now": None}
+        if not s["now"]:
+            ma_rows.append({"종목": h["ticker"], "종가$": None, "vs 5일%": None,
+                            "vs 20일%": None, "vs 60일%": None, "vs 120일%": None,
+                            "배열": "데이터 부족", "크로스(10일)": "-"})
+            continue
+        rel = lambda n: round((s["now"] / s["ma"][n] - 1) * 100, 1) if s["ma"].get(n) else None
+        ma_rows.append({"종목": h["ticker"], "종가$": round(s["now"], 2),
+                        "vs 5일%": rel(5), "vs 20일%": rel(20),
+                        "vs 60일%": rel(60), "vs 120일%": rel(120),
+                        "배열": s["arr"], "크로스(10일)": s["cross"] or "-"})
+    pct_cols = ["vs 5일%", "vs 20일%", "vs 60일%", "vs 120일%"]
+    st.dataframe(pd.DataFrame(ma_rows).style.map(pnl_style, subset=pct_cols)
+                 .format({c: "{:+.1f}" for c in pct_cols} | {"종가$": "{:,.2f}"}, na_rep="--"),
+                 width="stretch", height=530, hide_index=True)
+    st.caption("보유 종목 자동 추적 — 새 종목은 매수하면 자동 추가, 전량 매도하면 자동 제외됩니다. "
+               "양수(빨강)=이평선 위 · 음수(파랑)=아래. 일봉 기반이라 6시간 캐시로 동작합니다.")
+
     with st.expander("봇 감시 설정"):
         if sheet["settings"]:
             st.dataframe(pd.DataFrame([
@@ -408,6 +478,14 @@ with tab_detail:
     base = config.UNDERLYING_MAP.get(sel)
     if base:
         st.caption(f"레버리지 2x ETF — 기초자산: {base}. 장기 보유 시 일일 리밸런싱 감쇠 주의.")
+
+    s_ma = load_ma(tuple((h2["ticker"], h2.get("excd", "NAS")) for h2 in holdings)).get(sel)
+    if s_ma and s_ma["now"]:
+        parts = " · ".join(
+            f"{n}일선 {(s_ma['now'] / s_ma['ma'][n] - 1) * 100:+.1f}%"
+            for n in (5, 20, 60, 120) if s_ma["ma"].get(n))
+        st.caption("이동평균 대비: " + parts + f" · {s_ma['arr']}"
+                   + (f" · {s_ma['cross']}" if s_ma["cross"] else ""))
 
     left, right = st.columns(2)
     with left:

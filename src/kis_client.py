@@ -20,6 +20,8 @@ BASE_URL = {
 }
 TR_CCNL = {"prod": "TTTS3035R", "vps": "VTTS3035R"}
 TR_PRICE = "HHDFS00000300"
+_EXMAP = {"NASD": "NAS", "NAS": "NAS", "NYSE": "NYS", "NYS": "NYS",
+          "AMEX": "AMS", "AMS": "AMS"}
 
 
 def _fmt_date(yyyymmdd):
@@ -146,10 +148,16 @@ class KISClient:
         return out
 
     def fetch_price(self, excd, symb):
-        """해외주식 현재체결가. 미국 무료 시세 0분 지연. 실패 시 예외."""
-        _, d = self._get("/uapi/overseas-price/v1/quotations/price", TR_PRICE,
-                         {"AUTH": "", "EXCD": excd, "SYMB": symb})
-        return float((d.get("output") or {}).get("last") or 0)
+        """해외주식 현재체결가. 무료 시세 서버가 간헐 500을 내므로 1회 재시도."""
+        for attempt in (1, 2):
+            try:
+                _, d = self._get("/uapi/overseas-price/v1/quotations/price", TR_PRICE,
+                                 {"AUTH": "", "EXCD": excd, "SYMB": symb})
+                return float((d.get("output") or {}).get("last") or 0)
+            except requests.HTTPError:
+                if attempt == 2:
+                    raise
+                time.sleep(2)
 
     def fetch_holdings(self):
         """미국 보유 종목 잔고 (조회 전용). 평가액 내림차순."""
@@ -166,6 +174,7 @@ class KISClient:
             out.append({
                 "ticker": row.get("ovrs_pdno", ""),
                 "name": row.get("ovrs_item_name", ""),
+                "excd": _EXMAP.get((row.get("ovrs_excg_cd") or "").strip(), "NAS"),
                 "qty": qty,
                 "avg": float(row.get("pchs_avg_pric") or 0),
                 "now": float(row.get("now_pric2") or 0),
@@ -173,3 +182,24 @@ class KISClient:
                 "pnl_pct": float(row.get("evlu_pfls_rt") or 0),
             })
         return sorted(out, key=lambda x: -x["value"])
+
+    def fetch_daily_closes(self, excd, symb, need=130):
+        """일봉 종가 목록(최신순). 이동평균 계산용. 100건 초과는 BYMD 페이지네이션."""
+        closes = {}
+        bymd = ""
+        for _ in range(4):
+            _, d = self._get("/uapi/overseas-price/v1/quotations/dailyprice",
+                             "HHDFS76240000",
+                             {"AUTH": "", "EXCD": excd, "SYMB": symb,
+                              "GUBN": "0", "BYMD": bymd, "MODP": "1"})
+            rows = d.get("output2") or []
+            added = 0
+            for r in rows:
+                x, c = r.get("xymd"), float(r.get("clos") or 0)
+                if x and c > 0 and x not in closes:
+                    closes[x] = c
+                    added += 1
+            if len(closes) >= need or added == 0:
+                break
+            bymd = min(closes)
+        return [closes[x] for x in sorted(closes, reverse=True)]
