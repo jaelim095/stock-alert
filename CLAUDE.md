@@ -7,9 +7,11 @@
 ## 기능 구조 (3층)
 
 1. 기계 층 (src/, 봇): 체결 자동 기록 + lot 단위 ±10% 알림. 결정론적, LLM 없음
-2. 판단 보조 층 (`/checkup` 스킬): 보유 종목을 4인 관점(사업본질·해자·역방향·장기확실성)으로
-   평가 + 포트폴리오 진단. 요청 시에만 실행, 리포트는 `reports/`(git 제외).
-   데이터는 `scripts/portfolio_snapshot.py`(조회 전용)로 주입
+2. 판단 보조 층 (스킬 3종, 요청 시에만 실행): `/checkup`(보유 종목 4렌즈 점검+포트 진단),
+   `/earnings`(실적 원문 정독→투자논리 가정 판정), `/research`(신규 종목 심층 리서치→
+   포트 적합성 평가→투자논리 초안). 리포트는 `reports/`(git 제외),
+   데이터는 `scripts/portfolio_snapshot.py`(조회 전용)로 주입. 공통 규칙: 결론 강제,
+   반대 논거 의무, 타이밍·목표가 예측 금지. /research는 추가로 정보등급(A/B/C)·이중 출처 검증
 3. 결정 층: 사람. 주문은 항상 사용자가 직접
 4. 표시 층 (`dashboard/app.py`, Streamlit): 위 층들이 만든 데이터를 보여주는 로컬 웹.
    실행 `.venv/bin/streamlit run dashboard/app.py` (저장소 루트에서) → http://localhost:8501
