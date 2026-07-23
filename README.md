@@ -27,6 +27,14 @@
 http://localhost:8501 — 보유 현황·실질 노출·종목별 판정(체크업)·투자논리·알림/매매 이력.
 localhost 전용. 계좌 정보가 표시되므로 외부에 배포하지 않는다.
 
+포트폴리오 탭 — 보유 현황과 체크업 판정:
+
+![포트폴리오 탭](docs/images/dashboard-portfolio.png)
+
+종목 상세 탭 — 투자논리와 최근 판정:
+
+![종목 상세 탭](docs/images/dashboard-detail.png)
+
 ## 문서
 
 - 설계: `docs/02-design.md`
