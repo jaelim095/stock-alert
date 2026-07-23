@@ -35,6 +35,10 @@ localhost 전용. 계좌 정보가 표시되므로 외부에 배포하지 않는
 
 ![종목 상세 탭](docs/images/dashboard-detail.png)
 
+이동평균 현황 — 보유 전 종목 자동 추적(5/20/60/120일, 배열·크로스):
+
+![이동평균 현황](docs/images/dashboard-ma.png)
+
 ## 문서
 
 - 설계: `docs/02-design.md`
