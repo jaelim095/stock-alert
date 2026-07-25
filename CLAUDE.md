@@ -11,7 +11,9 @@
    `/earnings`(실적 원문 정독→투자논리 가정 판정), `/research`(신규 종목 심층 리서치→
    포트 적합성 평가→투자논리 초안). 리포트는 `reports/`(git 제외),
    데이터는 `scripts/portfolio_snapshot.py`(조회 전용)로 주입. 공통 규칙: 결론 강제,
-   반대 논거 의무, 타이밍·목표가 예측 금지. /research는 추가로 정보등급(A/B/C)·이중 출처 검증
+   반대 논거 의무, 타이밍·목표가 예측 금지. 사실 수집·반론은 공용 서브에이전트가 담당
+   (`.claude/agents/`: fact-researcher=A/B/C 정보등급·2출처 검증 내장, skeptic=판정 반박.
+   2026-07-25 도입 — 세 스킬 공통 적용)
 3. 결정 층: 사람. 주문은 항상 사용자가 직접
 4. 표시 층 (`dashboard/app.py`, Streamlit): 위 층들이 만든 데이터를 보여주는 로컬 웹.
    실행 `.venv/bin/streamlit run dashboard/app.py` (저장소 루트에서) → http://localhost:8501
@@ -43,6 +45,7 @@
 - 한투 주문/정정/취소 API는 어떤 이유로도 구현·호출하지 않는다. 이 프로젝트는 조회 전용이다.
 - `.env`, `secrets/`, `data/`, `logs/`, `.omc/`는 커밋 금지 (.gitignore 처리됨). 앱키·토큰을 코드나 문서에 적지 않는다.
 - 커밋 전 `git status`로 비밀 파일이 섞이지 않았는지 확인한다. private 저장소라도 키가 올라가면 히스토리에 남는다.
+- 추가 안전망: PreToolUse 훅(`.claude/hooks/check-secrets.sh`)이 git commit 시 스테이징에서 비밀 패턴·금지 경로를 검사해 차단한다 (2026-07-25). 훅이 차단하면 우회하지 말고 원인을 해결한다.
 - 실계좌 연결 전에 모의투자(`KIS_ENV=vps`)로 먼저 검증한다.
 
 ## 현재 상태 (2026-07-18 기준: 실운영 중)
