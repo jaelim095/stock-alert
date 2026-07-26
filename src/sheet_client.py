@@ -76,6 +76,8 @@ def _i(v, default=0):
 class SheetClient:
     def __init__(self, sa_json_path, sheet_id):
         self.gc = gspread.service_account(filename=sa_json_path)
+        # 타임아웃 없으면 소켓이 매달릴 때 루프가 영원히 멈춘다 (2026-07-20 실제 6일 정지)
+        self.gc.set_timeout((10, 30))
         self.doc = _retry(self.gc.open_by_key, sheet_id)
 
     def _ws(self, tab):
