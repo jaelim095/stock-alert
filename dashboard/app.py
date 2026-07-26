@@ -148,7 +148,8 @@ def aggregate_exposure(holdings):
 
 def report_section(text, ticker):
     """체크업 리포트에서 해당 종목 섹션만 추출."""
-    m = re.search(rf"^## {re.escape(ticker)}\b.*?(?=^## |\Z)", text, re.M | re.S)
+    # 헤더 레벨은 리포트마다 ##/### 로 갈린다 (LLM 산출물) — 둘 다 받는다
+    m = re.search(rf"^#{{2,3}} {re.escape(ticker)}\b.*?(?=^#{{2,3}} |\Z)", text, re.M | re.S)
     return m.group(0).strip() if m else None
 
 
@@ -210,7 +211,7 @@ HEALTH_PILL = {"우수": ("#1E7F4F", "#E6F4EC"), "양호": ("#2B6CB0", "#E8F0FB"
 def parse_checkup(text):
     """체크업 리포트 → 판정 카드용 구조 데이터 (LLM 산출물이라 best-effort 추출)."""
     items = []
-    for m in re.finditer(r"^## ([A-Z]{2,6})\b", text, re.M):
+    for m in re.finditer(r"^#{2,3} ([A-Z]{2,6})\b", text, re.M):
         tk = m.group(1)
         sec = report_section(text, tk)
         v, c = verdict_of(sec)
