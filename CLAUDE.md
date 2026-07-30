@@ -55,6 +55,7 @@
 - 완료: 구글시트 "매매 기록" 연결·탭 4개 생성, 감시 종목 IRE/TSLL/METU seed(평단 기준), Gmail+카카오톡 발송 검증
 - 완료: launchd 상시 구동 (caffeinate 잠자기 방지 포함). 실제 체결(IRE 매수)이 5분 내 시트 반영되고 알림 발송되는 것까지 확인
 - 카카오: REST 키+Client Secret 사용, talk_message 동의 완료, data/kakao_tokens.json (refresh 60일, 봇 자동 갱신). 2개월 이상 봇 중단 시 재로그인 필요(가이드 2절 8~11번)
+- 감시망(2026-07-30): 봇이 매 사이클 `data/heartbeat.json` 기록 → launchd 워치독(`com.jaewon.stock-alert-watchdog`, 15분)이 90분 무응답 시 자동 재시작+이메일. 하루 1회 잔고-lot 정합성 검사(`scripts/reconcile.py`, 위반 시 이메일). 배경: 07-20 gspread 소켓 행업으로 6일 무음 사고
 - 운영 명령·주의사항: 프로젝트 메모리(project-status.md) 참고. 감시 종목 변경은 시트 설정 탭에서
 
 ## 사용자 참고

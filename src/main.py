@@ -9,9 +9,12 @@ python -m src.main --once   장 시간 무관 전체 사이클 1회 (테스트�
   다음 주기에 자동 재기록, lot 중복 반영은 캐시가 막는다
 """
 import argparse
+import json
+import os
 import time
 import traceback
 from datetime import datetime, timedelta, time as dtime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import config, lot_engine
@@ -26,6 +29,22 @@ KST = ZoneInfo("Asia/Seoul")
 
 def _log(msg):
     print(f"[{datetime.now(KST).strftime('%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+def _write_heartbeat(status, mode=""):
+    """사이클 생존 신호 — 워치독이 나이를 검사해 무응답을 감지한다.
+
+    error 사이클에도 기록한다: 목적은 '루프가 돌고 있음' 증명이고,
+    2026-07-20의 6일 무음(소켓 행업)이 잡으려는 대상이다. 기록 실패는 무시.
+    """
+    try:
+        hb = {"ts": datetime.now(KST).isoformat(timespec="seconds"),
+              "status": status, "mode": mode, "pid": os.getpid()}
+        p = Path(config.HEARTBEAT_PATH)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(hb, ensure_ascii=False))
+    except OSError:
+        pass
 
 
 def collect_trades(kis, sheets, cache):
@@ -210,12 +229,15 @@ def main():
 
     sheets = _connect_sheets_forever()
     _log(f"stock-alert 시작 (env={config.KIS_ENV})")
+    _write_heartbeat("start")
     while True:
         mode, interval = market_mode()
         try:
             run_cycle(kis, sheets, notifier, cache, full=(mode == "full"))
+            _write_heartbeat("ok", mode)
         except Exception:
             traceback.print_exc()  # 일시 오류는 다음 주기로 이월
+            _write_heartbeat("error", mode)
         time.sleep(_sleep_seconds(interval))
 
 

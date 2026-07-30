@@ -36,6 +36,7 @@ ENABLE_DAY_MARKET = os.getenv("ENABLE_DAY_MARKET", "false").lower() == "true"
 
 KIS_TOKEN_PATH = "./data/kis_token.json"
 PROCESSED_ORDERS_PATH = "./data/processed_orders.json"  # lot 반영 완료 주문 캐시 (2차 dedupe)
+HEARTBEAT_PATH = "./data/heartbeat.json"  # 사이클 생존 신호 — 워치독·대시보드가 읽음
 
 # 레버리지 ETF → 기초자산 (실질 노출 합산·기초자산 분석용)
 UNDERLYING_MAP = {"TSLL": "TSLA", "METU": "META", "IRE": "IREN"}

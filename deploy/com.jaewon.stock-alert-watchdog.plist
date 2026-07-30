@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jaewon.stock-alert-watchdog</string>
+
+    <!-- 15분마다 봇 하트비트 검사 → 무응답 시 자동 재시작 + 이메일. 하루 1회 정합성 검사 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/jaewon/stock-alert/.venv/bin/python</string>
+        <string>/Users/jaewon/stock-alert/scripts/watchdog.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/jaewon/stock-alert</string>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/jaewon/stock-alert/logs/watchdog.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/jaewon/stock-alert/logs/watchdog.log</string>
+</dict>
+</plist>
