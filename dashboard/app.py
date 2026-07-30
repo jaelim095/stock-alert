@@ -303,11 +303,29 @@ def checkup_status():
     return running, info
 
 
+def bot_heartbeat():
+    """봇 생존 신호 (data/heartbeat.json). (정보 dict, 나이 분) — 없으면 (None, None)."""
+    try:
+        hb = json.loads((ROOT / "data/heartbeat.json").read_text())
+        ts = datetime.fromisoformat(hb["ts"])
+        return hb, (datetime.now(KST) - ts).total_seconds() / 60
+    except (OSError, ValueError, KeyError):
+        return None, None
+
+
 # ── 사이드바 ─────────────────────────────────────────────────
 
 st.sidebar.markdown(f"<div style='font-weight:800;font-size:1.15rem;color:{INK}'>"
                     "📈 Stock Dashboard</div>", unsafe_allow_html=True)
 st.sidebar.caption("조회 전용 · localhost")
+
+_hb, _hb_age = bot_heartbeat()
+if _hb is None:
+    st.sidebar.warning("봇 상태 미확인 — 하트비트 없음")
+elif _hb_age > 90:  # 워치독 STALE_SEC와 동일 기준
+    st.sidebar.error(f"봇 정지 의심 — 마지막 동작 {_hb_age / 60:.1f}시간 전")
+else:
+    st.sidebar.caption(f"봇 동작 중 · 마지막 사이클 {_hb_age:.0f}분 전")
 
 if st.sidebar.button("데이터 새로고침", width="stretch"):
     load_holdings.clear()   # 이동평균(일봉)은 6시간 캐시 유지 — 시세·시트만 갱신
