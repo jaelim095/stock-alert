@@ -89,19 +89,21 @@ class KISClient:
             raise RuntimeError(f"KIS API 오류 {d.get('msg_cd')}: {d.get('msg1')}")
         return r, d
 
-    def fetch_executions(self):
-        """미국 현지 [어제, 오늘] 범위의 체결내역 → 내부 키 trade dict 목록.
+    def fetch_executions(self, start=None, end=None):
+        """체결내역 → 내부 키 trade dict 목록. 기본은 미국 현지 [어제, 오늘].
 
-        날짜 경계 문제를 피하려고 항상 2일 범위로 조회하고 주문번호로 dedupe 한다
-        (dedupe는 호출자 몫).
+        날짜 경계 문제를 피하려고 기본 2일 범위로 조회하고 주문번호로 dedupe 한다
+        (dedupe는 호출자 몫). start/end는 date — 백필 스크립트가 과거 구간을 넘긴다.
         """
         today = datetime.now(US_EASTERN).date()
+        end_d = end or today
+        start_d = start or (end_d - timedelta(days=1))
         params = {
             "CANO": self.cano,
             "ACNT_PRDT_CD": self.prdt,
             "PDNO": "",
-            "ORD_STRT_DT": (today - timedelta(days=1)).strftime("%Y%m%d"),
-            "ORD_END_DT": today.strftime("%Y%m%d"),
+            "ORD_STRT_DT": start_d.strftime("%Y%m%d"),
+            "ORD_END_DT": end_d.strftime("%Y%m%d"),
             "SLL_BUY_DVSN": "00",       # 전체
             "CCLD_NCCS_DVSN": "01",     # 체결만
             "OVRS_EXCG_CD": "NASD",     # 미국 전체(나스닥+뉴욕+아멕스)
