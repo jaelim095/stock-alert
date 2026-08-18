@@ -393,7 +393,7 @@ st.markdown(f"""
 <div style="color:{MUTED};margin:2px 0 16px">미국주식 자동 기록·알림 봇 + 다관점 체크업 · {datetime.now(KST).strftime('%Y-%m-%d %H:%M')} KST</div>
 """, unsafe_allow_html=True)
 
-tab_pf, tab_detail, tab_report = st.tabs(["포트폴리오", "종목 상세", "리포트"])
+tab_pf, tab_detail, tab_report, tab_div = st.tabs(["포트폴리오", "종목 상세", "리포트", "배당"])
 
 
 # ── 탭 1: 포트폴리오 ────────────────────────────────────────
@@ -645,3 +645,10 @@ with tab_report:
                 st.markdown(md_safe(text))
         else:
             st.markdown(md_safe(text))
+
+
+# ── 배당 탭 ──────────────────────────────────────────────────
+
+with tab_div:
+    st.subheader("배당락일 타임라인")
+    st.info("배당 리포트가 없습니다. 터미널에서 /dividends 를 실행하면 이곳에 표시됩니다.")
