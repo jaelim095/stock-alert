@@ -651,4 +651,35 @@ with tab_report:
 
 with tab_div:
     st.subheader("배당락일 타임라인")
-    st.info("배당 리포트가 없습니다. 터미널에서 /dividends 를 실행하면 이곳에 표시됩니다.")
+    div_files = sorted(REPORTS.glob("dividends-*.json"))
+    if not div_files:
+        st.info("배당 리포트가 없습니다. 터미널에서 /dividends 를 실행하면 생성됩니다.")
+    else:
+        try:
+            div = json.loads(div_files[-1].read_text())
+        except ValueError:
+            div = None
+        if not div:
+            st.error(f"{div_files[-1].name} 파싱 실패 — /dividends 재실행 필요")
+        else:
+            today_d = datetime.now(KST).date()
+            rows = []
+            for e in div.get("events", []):
+                try:
+                    dd = (datetime.fromisoformat(e["ex_date"]).date() - today_d).days
+                    dtxt = "D-day" if dd == 0 else (f"D-{dd}" if dd > 0 else f"{-dd}일 지남")
+                except (ValueError, KeyError):
+                    dtxt = ""
+                rows.append({
+                    "배당락일": e.get("ex_date", ""), "D-day": dtxt,
+                    "종목": e.get("ticker", ""), "주당": e.get("per_share", ""),
+                    "보유": e.get("qty", ""), "예상 수령": e.get("est_total", ""),
+                    "지급일": e.get("pay_date", ""), "상태": e.get("status", ""),
+                    "비고": e.get("note", ""),
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            if div.get("no_dividend"):
+                st.caption("무배당 확인: " + ", ".join(div["no_dividend"]))
+            st.caption(f"기준일 {div.get('as_of', '?')} · 출처·정보등급은 {div_files[-1].stem}.md"
+                       " · 갱신은 /dividends 실행 (분기 1회 권장)")
+            st.caption("추정 = 회사 미선언, 과거 패턴 기반. 배당락일 전날까지 보유해야 수령됩니다.")
