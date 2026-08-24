@@ -1,115 +1,115 @@
-# 설계 문서 — stock-alert (미국주식 매매기록·알림 봇)
+# Design Document — stock-alert (US Stock Trade-Logging & Alert Bot)
 
-2026-07-16 확정. 이 문서가 구현의 기준(canonical spec)이다.
-코드와 이 문서가 어긋나면 문서를 기준으로 하거나, 문서를 먼저 고친 뒤 코드를 바꾼다.
+Finalized 2026-07-16. This document is the canonical spec for the implementation.
+If the code and this document diverge, either the document wins as-is, or the document is amended first and the code changed afterward.
 
-## 1. 확정 결정사항
+## 1. Finalized Decisions
 
-- 대상 시장: 미국 주식만 (나스닥 NAS / 뉴욕 NYS / 아멕스 AMS)
-- 실행 환경: 사용자 맥에서 상시 구동. launchd LaunchAgent(`deploy/com.jaewon.stock-alert.plist`)로 부팅 시 자동 시작, 비정상 종료 시 자동 재시작
-- 데이터 소스: 한국투자증권 오픈API 조회 전용. 주문/정정/취소 API는 어떤 경우에도 사용하지 않는다
-- 기록 저장소: 구글시트 1개 문서, 4개 탭. 시트가 유일한 상태 저장소(source of truth)이며 사용자가 직접 수정할 수 있다
-- 알림 채널: 카카오톡 나에게 보내기 메인. 이메일은 `ALERT_EMAIL_MODE`로 제어 — always(항상 병행) / fallback(카톡 실패 시에만) / off. 2026-07-18 사용자 결정으로 기본 fallback 운영. 카카오 토큰 갱신 실패 시 이메일로 "재로그인 필요" 경고는 모드와 무관하게 발송
-- 매도-lot 매칭: 수량이 정확히 일치하는 lot 우선(복수면 최신) → 없으면 LIFO 분할 소진
-- 알림 반복: 조건별 최초 1회 + 조건 미해소 시 24시간마다 리마인드. 하락 방향은 -10%/-20%/-30% 계단식(단계마다 새 알림)
+- Target market: US stocks only (NASDAQ NAS / NYSE NYS / AMEX AMS)
+- Runtime: runs continuously on the user's Mac. A launchd LaunchAgent (`deploy/com.jaewon.stock-alert.plist`) starts it at boot and restarts it automatically on abnormal exit
+- Data source: Korea Investment & Securities (KIS) Open API, read-only. Order/amend/cancel APIs are never used under any circumstances
+- Record store: a single Google Sheets document with 4 tabs. The sheet is the sole state store (source of truth), and the user may edit it directly
+- Alert channels: KakaoTalk self-message ("나에게 보내기") is the primary channel. Email is controlled by `ALERT_EMAIL_MODE` — always (always sent in parallel) / fallback (only when KakaoTalk fails) / off. Running with fallback as the default per the user's 2026-07-18 decision. The warning email sent when Kakao token refresh fails ("re-login required") goes out regardless of the mode
+- Sell-to-lot matching: prefer a lot whose quantity matches exactly (most recent one if multiple) → otherwise deplete lots LIFO, splitting as needed
+- Alert repetition: once per condition initially + a reminder every 24 hours while the condition remains unresolved. The downside direction is stepped at -10%/-20%/-30% (a new alert at each step)
 
-## 2. 아키텍처
+## 2. Architecture
 
-단일 파이썬 프로세스. 장중 5분 주기 루프:
+A single Python process. A 5-minute loop while the market is open:
 
-1. 체결내역 수집 — KIS 해외주식 주문체결내역 조회 → 신규 체결을 `거래내역` 탭에 append
-2. lot 갱신 — 신규 매수 → BUY_LOT 생성 / 신규 매도 → lot 매칭·차감 + SELL_POINT 생성
-3. 시세 조회 — 활성 lot이 있는 감시 종목의 현재가 조회
-4. 조건 평가 — lot별 등락률 계산 → 발송할 알림 결정 (순수 로직, lot_engine)
-5. 발송·기록 — 카카오+이메일 발송 → lot 알림상태 저장 → `알림로그` append (로그 실패는 상태 저장을 막지 않음 — 중복 발송 방지 우선)
+1. Collect fills — query KIS overseas-stock order execution history → append new fills to the `거래내역` (trade log) tab
+2. Update lots — new buy → create a BUY_LOT / new sell → match and deduct lots + create a SELL_POINT
+3. Fetch quotes — get current prices for watched tickers that have active lots
+4. Evaluate conditions — compute each lot's change rate → decide which alerts to send (pure logic, lot_engine)
+5. Send & record — send Kakao + email → persist each lot's alert state → append to the `알림로그` (alert log) tab (a logging failure does not block state persistence — preventing duplicate sends takes priority)
 
-상태는 매 주기 시트에서 다시 읽는다(사용자의 수동 수정이 즉시 반영됨). 로컬에는 토큰 캐시만 둔다.
+State is re-read from the sheet every cycle (the user's manual edits take effect immediately). Only token caches are kept locally.
 
-## 3. 폴링 스케줄
+## 3. Polling Schedule
 
-시간 계산은 `zoneinfo("America/New_York")` 기준(서머타임 자동 처리).
+Time calculations are based on `zoneinfo("America/New_York")` (DST handled automatically).
 
-- 정규장 ET 09:30~16:00 (KST 22:30~05:00 서머타임 / 23:30~06:00 표준시): 5분 주기 전체 루프
-- 장 마감 직후 ET 16:05~16:35: 최종 체결 수집 1회
-- 장외: 30분 주기로 체결내역 수집만 수행(프리·애프터마켓 체결 대비). 시세 평가는 하지 않음
-- 미국 주간거래(KST 10:00~16:00) 감시는 `ENABLE_DAY_MARKET=true`일 때만 (기본 꺼짐)
+- Regular session, ET 09:30–16:00 (KST 22:30–05:00 during DST / 23:30–06:00 standard time): full loop every 5 minutes
+- Right after the close, ET 16:05–16:35: one final fill-collection pass
+- Off-hours: collect fills only, every 30 minutes (to catch pre-/after-market fills). No quote evaluation
+- Watching the US daytime trading session (KST 10:00–16:00) only when `ENABLE_DAY_MARKET=true` (off by default)
 
-## 4. 구글시트 스키마
+## 4. Google Sheets Schema
 
-문서 1개, 탭 4개. 헤더는 한국어(사용자 열람용), 코드 내부 키는 영문.
-`scripts/init_sheet.py`가 탭과 헤더를 자동 생성한다.
+One document, 4 tabs. Headers are in Korean (for the user to read); the internal keys used in code are English.
+`scripts/init_sheet.py` creates the tabs and headers automatically.
 
-### 탭 1: 거래내역 — 모든 체결 자동 기록 (전 종목)
+### Tab 1: 거래내역 — every fill recorded automatically (all tickers)
 
-| 헤더 | 내부 키 | 설명 |
+| Header | Internal key | Description |
 |---|---|---|
-| 기록시각 | recorded_at | 봇이 기록한 시각 (KST, ISO) |
-| 체결일 | trade_date | 미국 현지 날짜 YYYY-MM-DD |
-| 종목코드 | ticker | 예: TSLA |
-| 종목명 | name | API 응답의 상품명 |
-| 구분 | side | 매수 / 매도 |
-| 체결단가 | price | USD |
-| 체결수량 | qty | |
-| 체결금액 | amount | USD |
-| 주문번호 | order_no | 중복 수집 방지 키. 시트에는 RAW로 저장(선행 0 보존), 비교 시 선행 0 정규화 |
-| 매칭lot | matched_lots | 매도 시 소진 내역. `lot_id:수량` 쉼표 목록 (부분체결 재매칭에 사용) |
-| 비고 | note | |
+| 기록시각 (recorded time) | recorded_at | Time the bot wrote the row (KST, ISO) |
+| 체결일 (trade date) | trade_date | US local date, YYYY-MM-DD |
+| 종목코드 (ticker) | ticker | e.g. TSLA |
+| 종목명 (name) | name | Product name from the API response |
+| 구분 (side) | side | 매수 (buy) / 매도 (sell) |
+| 체결단가 (fill price) | price | USD |
+| 체결수량 (fill quantity) | qty | |
+| 체결금액 (fill amount) | amount | USD |
+| 주문번호 (order number) | order_no | Key for preventing duplicate collection. Stored RAW in the sheet (leading zeros preserved); leading zeros normalized for comparison |
+| 매칭lot (matched lots) | matched_lots | Depletion detail on sells. Comma-separated list of `lot_id:qty` (used for re-matching on partial fills) |
+| 비고 (note) | note | |
 
-### 탭 2: 활성감시 — lot 상태 (알림 엔진의 상태 저장소)
+### Tab 2: 활성감시 (active watch) — lot state (the alert engine's state store)
 
-| 헤더 | 내부 키 | 설명 |
+| Header | Internal key | Description |
 |---|---|---|
-| lot_id | lot_id | `{ticker}-{YYYYMMDD}-{seq}` 예: TSLA-20260501-1 |
+| lot_id | lot_id | `{ticker}-{YYYYMMDD}-{seq}`, e.g. TSLA-20260501-1 |
 | 종목코드 | ticker | |
-| 유형 | kind | 매수lot / 매도기준점 |
-| 기준일 | base_date | 현지 날짜 |
-| 기준가 | base_price | USD |
-| 수량 | qty | 매수lot=잔여수량, 매도기준점=매도수량 |
-| 상태 | status | 감시중 / 종료 |
-| 현재가 | last_price | 마지막 조회가 |
-| 등락률 | change_pct | 기준가 대비 % |
-| 알림상태 | alert_state | JSON. `{"drop_level": 1, "rise_alerted": true, "last_alert": {"drop": "<ISO>", "rise": "<ISO>"}}` |
-| 종료사유 | closed_reason | 전량매도 / 재매수됨 / 수동 |
+| 유형 (kind) | kind | 매수lot (buy lot) / 매도기준점 (sell reference point) |
+| 기준일 (base date) | base_date | US local date |
+| 기준가 (base price) | base_price | USD |
+| 수량 (quantity) | qty | For a 매수lot: remaining quantity; for a 매도기준점: sold quantity |
+| 상태 (status) | status | 감시중 (watching) / 종료 (closed) |
+| 현재가 (current price) | last_price | Last fetched price |
+| 등락률 (change %) | change_pct | % versus the base price |
+| 알림상태 (alert state) | alert_state | JSON. `{"drop_level": 1, "rise_alerted": true, "last_alert": {"drop": "<ISO>", "rise": "<ISO>"}}` |
+| 종료사유 (close reason) | closed_reason | 전량매도 (fully sold) / 재매수됨 (re-bought) / 수동 (manual) |
 
-### 탭 3: 알림로그
+### Tab 3: 알림로그
 
-발송시각 / 종목코드 / lot_id / 조건 / 기준가 / 현재가 / 등락률 / 메시지 / 채널 / 결과
+발송시각 (sent time) / 종목코드 / lot_id / 조건 (condition) / 기준가 / 현재가 / 등락률 / 메시지 (message) / 채널 (channel) / 결과 (result)
 
-조건 값: `추가매수-10%`, `추가매수-20%`, `추가매수-30%`, `매도+10%`, `재매수-10%`, `리마인드(원조건)` 형식.
+Condition values follow the format `추가매수-10%` (add-on buy -10%), `추가매수-20%`, `추가매수-30%`, `매도+10%` (sell +10%), `재매수-10%` (re-buy -10%), `리마인드(원조건)` (reminder, original condition).
 
-### 탭 4: 설정 — 감시 종목
+### Tab 4: 설정 (settings) — watched tickers
 
-| 헤더 | 내부 키 | 설명 |
+| Header | Internal key | Description |
 |---|---|---|
 | 종목코드 | ticker | |
-| 거래소 | excd | NAS / NYS / AMS (시세 조회에 필요) |
-| 하락임계% | drop_pct | 비우면 기본값(.env DEFAULT_DROP_PCT) |
-| 상승임계% | rise_pct | 비우면 기본값 |
-| 감시 | enabled | Y / N |
-| 메모 | memo | |
+| 거래소 (exchange) | excd | NAS / NYS / AMS (needed for quote queries) |
+| 하락임계% (drop threshold %) | drop_pct | If empty, the default applies (.env DEFAULT_DROP_PCT) |
+| 상승임계% (rise threshold %) | rise_pct | If empty, the default applies |
+| 감시 (watch) | enabled | Y / N |
+| 메모 (memo) | memo | |
 
-거래내역 기록은 전 종목, 알림 평가는 감시=Y 종목만.
+Trade logging covers all tickers; alert evaluation covers only tickers with 감시=Y.
 
-## 5. Lot 상태머신
+## 5. Lot State Machine
 
-- 매수 체결 → BUY_LOT 생성 (기준가=체결단가, 수량=체결수량)
-- BUY_LOT(감시중):
-  - 현재가 ≤ 기준가 × (1 − n×하락임계/100) → "추가매수" 알림. n=1,2,3… 계단식, 단계별 1회. `alert_state.drop_level`에 알림 완료한 최고 단계 기록
-  - 현재가 ≥ 기준가 × (1 + 상승임계/100) → "매도" 알림 1회 (`rise_alerted`)
-  - 평가 시점에 조건이 충족돼 있고 해당 조건의 마지막 알림 후 24시간 경과 → 리마인드 재발송 (중간에 조건이 잠시 해소됐다가 재진입한 경우도 포함 — 다시 기회가 온 것을 알리는 게 목적)
-- 매도 체결 → lot 매칭 (해당 종목의 감시중 BUY_LOT 대상):
-  1. 수량이 정확히 일치하는 lot이 있으면(복수면 가장 최근 것) 그 lot 전량 종료
-  2. 없으면 가장 최근 lot부터(LIFO) 수량 차감. 0이 되면 종료(전량매도), 남으면 잔여수량으로 계속 감시
-  3. 매도 수량이 감시중 lot 합계보다 크면 초과분은 무시하고 거래내역 비고에 기록
-  - 동시에 SELL_POINT 생성 (기준가=매도단가, 수량=매도수량)
-- SELL_POINT(감시중):
-  - 현재가 ≤ 기준가 × (1 − n×하락임계/100) → "재매수" 알림 (계단식·리마인드 규칙 동일)
-  - 해당 종목에 새 매수 체결 발생 → 그 종목의 감시중 SELL_POINT 전부 종료 (종료사유=재매수됨)
-- 사용자가 시트에서 lot 행을 직접 수정하거나 상태를 "종료"로 바꾸면 다음 주기부터 그대로 반영된다
+- Buy fill → create a BUY_LOT (base price = fill price, quantity = fill quantity)
+- BUY_LOT (감시중):
+  - Current price ≤ base price × (1 − n × drop threshold/100) → "추가매수" alert. n = 1, 2, 3… stepped, once per step. The highest step already alerted is recorded in `alert_state.drop_level`
+  - Current price ≥ base price × (1 + rise threshold/100) → one "매도" alert (`rise_alerted`)
+  - If the condition holds at evaluation time and 24 hours have passed since the last alert for that condition → resend as a reminder (this includes the case where the condition briefly cleared and then re-entered — the point is to signal that the opportunity has come around again)
+- Sell fill → lot matching (against that ticker's 감시중 BUY_LOTs):
+  1. If a lot with an exactly matching quantity exists (the most recent one if multiple), close that lot in full
+  2. Otherwise deduct starting from the most recent lot (LIFO). A lot reaching 0 is closed (전량매도); a lot with a remainder keeps being watched at its remaining quantity
+  3. If the sell quantity exceeds the total of 감시중 lots, ignore the excess and record it in the trade log's 비고 column
+  - At the same time, create a SELL_POINT (base price = sell price, quantity = sell quantity)
+- SELL_POINT (감시중):
+  - Current price ≤ base price × (1 − n × drop threshold/100) → "재매수" alert (same stepping and reminder rules)
+  - A new buy fill for that ticker → close all of that ticker's 감시중 SELL_POINTs (close reason = 재매수됨)
+- If the user edits a lot row directly in the sheet or flips its status to 종료, the change is honored from the next cycle onward
 
-## 6. 알림
+## 6. Alerts
 
-### 메시지 형식 (사용자 예시 재현)
+### Message format (reproduces the user's example)
 
 ```
 [추가매수] TSLA
@@ -118,59 +118,61 @@
 보유 25주 · 평단 $95.20 · 평가손익 -5.6%
 ```
 
-- [매도] / [재매수] 도 같은 형식. 재매수는 "6/15 매도 $89.10 × 5주 대비 -10.1%" 처럼 매도 기준.
-- 마지막 줄의 보유·평단·평가손익은 그 종목의 감시중 매수lot 전체 기준.
-- 같은 주기에 여러 lot이 걸리면 종목별로 한 메시지로 묶는다 (알림 폭탄 방지).
+Messages are sent in Korean, verbatim as above. Roughly: "[Add-on buy] TSLA / -10.2% versus the 5/1 buy at $100.00 × 10 shares (now $89.80) / Time to consider adding. / Holding 25 shares · avg cost $95.20 · unrealized P/L -5.6%".
 
-### 채널
+- [매도] / [재매수] use the same format. Re-buy is measured against the sell, e.g. "6/15 매도 $89.10 × 5주 대비 -10.1%" (-10.1% versus the 6/15 sell at $89.10 × 5 shares).
+- The holdings / average cost / unrealized P/L on the last line are computed over all of that ticker's 감시중 buy lots.
+- If multiple lots trigger in the same cycle, they are bundled into one message per ticker (to avoid alert storms).
 
-- 카카오톡: `POST https://kapi.kakao.com/v2/api/talk/memo/default/send` (text 템플릿). access token 12시간 / refresh token 60일 — 발송 전 만료 확인, 갱신 응답에 새 refresh_token이 오면 `KAKAO_TOKENS_PATH` 파일 교체 저장
-- 이메일: Gmail SMTP(앱 비밀번호). `ALERT_EMAIL_MODE`에 따라 발송 — 현재 fallback(카톡 성공 시 생략, 실패 시에만 발송)
-- 카카오 토큰 갱신 실패 → 이메일 제목 "[stock-alert] 카카오 재로그인 필요" 경고 발송
+### Channels
 
-## 7. KIS API 사용
+- KakaoTalk: `POST https://kapi.kakao.com/v2/api/talk/memo/default/send` (text template). Access token valid 12 hours / refresh token 60 days — check expiry before sending; if the refresh response includes a new refresh_token, replace the file at `KAKAO_TOKENS_PATH`
+- Email: Gmail SMTP (app password). Sent according to `ALERT_EMAIL_MODE` — currently fallback (skipped when KakaoTalk succeeds, sent only on failure)
+- Kakao token refresh failure → send a warning email with the subject "[stock-alert] 카카오 재로그인 필요" (Kakao re-login required)
 
-- 인증: `POST /oauth2/tokenP`. 토큰 24시간 유효, 재발급 1분당 1회 제한 → `data/kis_token.json`에 캐싱, 만료 10분 전에만 갱신
-- 도메인: 실전 `https://openapi.koreainvestment.com:9443` / 모의 `https://openapivts.koreainvestment.com:29443` (KIS_ENV=prod/vps)
-- 체결내역: `GET /uapi/overseas-stock/v1/trading/inquire-ccnl` (TR: 실전 `TTTS3035R` / 모의 `VTTS3035R`)
-  - `ORD_STRT_DT`/`ORD_END_DT`는 미국 현지 날짜. 날짜 경계 문제를 피하려고 항상 [어제, 오늘](현지) 2일 범위로 조회 후 주문번호로 dedupe
-  - `OVRS_EXCG_CD=NASD`(미국 전체), `SLL_BUY_DVSN=00`, `CCLD_NCCS_DVSN=01`(체결만), 연속조회 `CTX_AREA_FK200/NK200`
-  - 중복 방지: 주문번호 기준 2중 — (1) 시트 거래내역 탭의 기존 주문번호, (2) 로컬 캐시 `data/processed_orders.json`(14일 보관, 시트 기록과 lot 반영의 부분 실패 시 중복 적용 방지). 주문번호는 시트에 RAW로 저장하고 비교 시 선행 0을 정규화
-  - 부분 체결: 같은 주문번호의 체결수량이 늘어나 있으면 기존 행의 수량·금액을 갱신. 매수는 lot 수량 보정(+ 그 종목 SELL_POINT 종료 규칙 동일 적용), 매도는 matched_lots(`lot_id:수량`) 기반으로 이전 매칭을 복원한 뒤 주문 누적 총수량으로 재매칭 — 분할 체결이어도 단일 체결과 같은 결과가 되도록
-- 현재가: `GET /uapi/overseas-price/v1/quotations/price` (TR `HHDFS00000300`, `AUTH=""`, `EXCD`=설정 탭의 거래소, `SYMB`=티커). 미국 무료 시세 0분 지연
-- 유량: 실전 초당 20건 제한. 5분 주기·소수 종목이라 여유 있으나 호출 간 0.2초 sleep
-- 참고: 2026-03-20 "신규 고객 초당 호출 제한" 공지 — 앱키 발급 시 포털에서 본문 확인할 것
+## 7. KIS API Usage
 
-## 8. 코드 구조
+- Auth: `POST /oauth2/tokenP`. Token valid for 24 hours, re-issuance limited to once per minute → cached in `data/kis_token.json`, refreshed only within 10 minutes of expiry
+- Domains: production `https://openapi.koreainvestment.com:9443` / paper trading `https://openapivts.koreainvestment.com:29443` (KIS_ENV=prod/vps)
+- Fill history: `GET /uapi/overseas-stock/v1/trading/inquire-ccnl` (TR: production `TTTS3035R` / paper `VTTS3035R`)
+  - `ORD_STRT_DT`/`ORD_END_DT` are US local dates. To avoid date-boundary issues, always query a 2-day range of [yesterday, today] (local) and dedupe by order number
+  - `OVRS_EXCG_CD=NASD` (all US markets), `SLL_BUY_DVSN=00`, `CCLD_NCCS_DVSN=01` (fills only), pagination via `CTX_AREA_FK200/NK200`
+  - Duplicate prevention: two layers keyed on order number — (1) existing order numbers in the sheet's 거래내역 tab, (2) the local cache `data/processed_orders.json` (retained 14 days; prevents double application when the sheet write and the lot update partially fail). Order numbers are stored RAW in the sheet, with leading zeros normalized for comparison
+  - Partial fills: if the filled quantity for an existing order number has increased, update that row's quantity and amount. For buys, adjust the lot quantity (and apply the same SELL_POINT-closing rule for that ticker); for sells, restore the previous matching from matched_lots (`lot_id:qty`) and re-match using the order's cumulative total quantity — so a split fill ends up with the same result as a single fill
+- Current price: `GET /uapi/overseas-price/v1/quotations/price` (TR `HHDFS00000300`, `AUTH=""`, `EXCD` = exchange from the 설정 tab, `SYMB` = ticker). Free US quotes with 0-minute delay
+- Rate limits: production caps at 20 calls per second. With a 5-minute cycle and only a few tickers there is ample headroom, but sleep 0.2 s between calls anyway
+- Note: KIS notice dated 2026-03-20 on "per-second call limits for new customers" — read the notice body on the portal when issuing app keys
+
+## 8. Code Layout
 
 ```
-src/config.py        .env 로드, 상수
-src/state_cache.py   처리 완료 주문 로컬 캐시(2차 dedupe) + 주문번호 정규화
-src/kis_client.py    토큰 캐싱, 체결내역·현재가 조회 (조회 전용)
-src/sheet_client.py  gspread 래퍼 (탭 읽기 / append / 행 갱신)
-src/lot_engine.py    순수 로직 (I/O 없음): 체결 → lot 반영, 시세 → 알림 판정. 유닛테스트 대상
-src/notifier.py      카카오(토큰 자동 갱신 포함) + Gmail
-src/main.py          스케줄 루프. --once 플래그로 1회 실행(테스트용)
-scripts/init_sheet.py  시트 탭/헤더 초기화
-tests/test_lot_engine.py  사용자 예시 시나리오(5/1~7/1) 재현 포함
+src/config.py        loads .env, constants
+src/state_cache.py   local cache of processed orders (2nd-layer dedupe) + order-number normalization
+src/kis_client.py    token caching, fill-history and current-price queries (read-only)
+src/sheet_client.py  gspread wrapper (read tabs / append / update rows)
+src/lot_engine.py    pure logic (no I/O): fills → lot updates, quotes → alert decisions. Unit-test target
+src/notifier.py      Kakao (including automatic token refresh) + Gmail
+src/main.py          scheduling loop. --once flag runs a single pass (for testing)
+scripts/init_sheet.py  initializes sheet tabs/headers
+tests/test_lot_engine.py  includes a reproduction of the user's example scenario (5/1–7/1)
 ```
 
-## 9. 엣지 케이스
+## 9. Edge Cases
 
-- 부분 체결: 주문번호 동일·수량 증가 → 행/lot 갱신 (7절)
-- 부분 매도·LIFO 분할: 5절 매칭 규칙
-- 자정(현지) 부근: 2일 범위 조회 + 주문번호 dedupe
-- 프리/애프터마켓 체결: 장외 30분 주기 수집으로 커버
-- 시세 조회 실패 또는 0 값: 해당 종목은 그 주기 평가 스킵 (오발송 방지)
-- 카카오/시트 API 일시 오류: 1회 재시도 후 다음 주기로 이월, 오류 로그 남김
-- 거래내역 append 실패: lot 반영이 끝난 주문은 로컬 캐시(`data/processed_orders.json`)에 남아 다음 주기에 자동 재기록 (lot 중복 반영도 캐시가 차단)
-- 시트 쓰기 안전성: 활성감시 탭은 clear 없이 단일 update로 덮어쓴다(중간 실패로 상태 저장소가 비는 것 방지). 주기 내 순서는 lot 기록 → 거래 기록 → 알림 발송 → alert_state 기록 → 알림로그 순 (알림로그 실패는 alert_state 저장을 막지 않음 → 중복 발송 방지 우선)
-- 시작 시 시트 연결 실패: 60초 간격 재시도 (부팅 직후 네트워크 미연결 대비)
-- 카카오 토큰 갱신 실패 경고 이메일: 6시간에 1회로 스로틀
-- 봇 재시작: 상태가 전부 시트에 있으므로 그냥 재시작하면 이어서 동작
+- Partial fills: same order number with an increased quantity → update the row/lot (section 7)
+- Partial sells / LIFO splitting: matching rules in section 5
+- Around (local) midnight: 2-day query range + order-number dedupe
+- Pre-/after-market fills: covered by the 30-minute off-hours collection cycle
+- Quote fetch failure or a zero value: skip that ticker's evaluation for the cycle (prevents false alerts)
+- Transient Kakao/Sheets API errors: retry once, then carry over to the next cycle and log the error
+- Trade-log append failure: orders whose lot updates already completed remain in the local cache (`data/processed_orders.json`) and are automatically re-recorded next cycle (the cache also blocks duplicate lot application)
+- Sheet write safety: the 활성감시 tab is overwritten with a single update, without a clear (prevents a mid-operation failure from leaving the state store empty). Order within a cycle: lot writes → trade writes → alert sends → alert_state writes → alert log (an alert-log failure does not block alert_state persistence → preventing duplicate sends takes priority)
+- Sheet connection failure at startup: retry every 60 seconds (covers no network right after boot)
+- Kakao token-refresh-failure warning email: throttled to once per 6 hours
+- Bot restart: all state lives in the sheet, so simply restarting resumes where it left off
 
-## 10. 보안
+## 10. Security
 
-- 비밀정보는 `.env`, `secrets/`, `data/` — 전부 gitignore
-- 주문 계열 API는 코드 자체를 두지 않는다 (조회 전용)
-- 구글시트 공유는 서비스 계정 이메일에게만
+- Secrets live in `.env`, `secrets/`, `data/` — all gitignored
+- Order-family APIs are not present in the code at all (read-only)
+- The Google Sheet is shared only with the service-account email

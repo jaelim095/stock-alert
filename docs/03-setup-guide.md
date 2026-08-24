@@ -1,68 +1,62 @@
-# 셋업 가이드 — 사용자가 직접 해야 하는 준비 작업
+# Setup Guide — Preparation Steps the User Must Do Manually
 
-봇을 돌리기 전에 아래 1~4번(외부 서비스 키 발급)과 5~9번(로컬 설치·구동)을 순서대로 진행한다.
-전체 소요시간은 처음 하는 기준으로 1.5~2시간 정도.
+Before running the bot, work through steps 1-4 (issuing keys for external services) and 5-9 (local install and launch) in order.
+Expect the whole process to take about 1.5-2 hours the first time through.
 
-목차
-1. 한국투자증권 Open API 신청 (30분 + 계좌 없으면 별도)
-2. 카카오톡 나에게 보내기 설정 (20분)
-3. 구글시트 + 서비스 계정 (20분)
-4. Gmail 앱 비밀번호 (5분)
-5. 로컬 설치와 .env 작성 (10분)
-6. 시트 초기화 (1분)
-7. 1회 실행 테스트 (5분)
-8. 상시 구동 등록 — launchd (5분)
-9. 맥 잠자기 방지 (5분)
-10. 문제 해결
+Table of contents
+1. Korea Investment & Securities (KIS) Open API application (30 min; extra time if you have no account)
+2. KakaoTalk send-to-myself setup (20 min)
+3. Google Sheets + service account (20 min)
+4. Gmail app password (5 min)
+5. Local install and .env setup (10 min)
+6. Sheet initialization (1 min)
+7. Single-run test (5 min)
+8. Always-on registration — launchd (5 min)
+9. Preventing Mac sleep (5 min)
+10. Troubleshooting
 
 ---
 
-## 1. 한국투자증권 Open API 신청 (약 30분)
+## 1. Korea Investment & Securities (KIS) Open API Application (about 30 min)
 
-계좌가 이미 있으므로 신청만 하면 된다. 없다면 비대면 계좌 개설부터(앱에서 20분).
+If you already have an account, you only need to apply for API access. If not, start with remote account opening (about 20 minutes in the app).
 
-1. 한국투자증권 홈페이지 로그인 → 메뉴에서 `트레이딩 > Open API > KIS Developers` 이동
-2. Open API 서비스 신청 → 실전투자용 앱키(App Key)/앱시크릿(App Secret) 발급
-3. 모의투자도 신청한다. 먼저 모의투자 서비스에 가입한 뒤, 모의투자용 앱키/앱시크릿을 별도로 발급받는다. 처음에는 모의 키로 테스트할 것이므로 필수.
-4. 발급받은 키 4개(실전 키/시크릿, 모의 키/시크릿)를 안전한 곳에 보관한다. 화면을 벗어나면 시크릿은 다시 볼 수 없는 경우가 있으니 그 자리에서 복사.
+1. Log in to the KIS website → in the menu, go to `트레이딩 > Open API > KIS Developers` (Trading > Open API > KIS Developers)
+2. Apply for the Open API service → get a production (live trading) App Key / App Secret issued
+3. Also apply for paper trading. Sign up for the paper trading service first, then get a separate paper-trading App Key / App Secret. This is required, because you will test with the paper keys first.
+4. Store all four keys (production key/secret, paper key/secret) somewhere safe. In some cases the secret cannot be viewed again after you leave the screen, so copy it on the spot.
 
-주의: KIS Developers 포털(apiportal.koreainvestment.com)의 공지사항에서
-2026-03-20 게시된 "[중요] 신규 고객 초당 호출 제한 안내" 본문을 꼭 읽어볼 것.
-신규 가입자에게 낮은 호출 한도가 적용될 수 있다. 이 봇은 5분 주기 소량 호출이라 보통 문제없지만, 한도 수치는 확인해두는 게 좋다.
+Note: on the KIS Developers portal (apiportal.koreainvestment.com), be sure to read the notice posted 2026-03-20 titled "[중요] 신규 고객 초당 호출 제한 안내" (Important: per-second call limit notice for new customers).
+New sign-ups may be subject to a lower call limit. This bot makes only a small number of calls on a 5-minute cycle, so it is usually fine, but it is worth checking the actual limit numbers.
 
-발급된 키는 5번 단계에서 `.env`의 `KIS_APP_KEY`, `KIS_APP_SECRET`에 넣는다.
-계좌번호(앞 8자리-뒤 2자리)는 `KIS_ACCOUNT_NO`에 넣는다. 예: `12345678-01`
+The issued keys go into `KIS_APP_KEY` and `KIS_APP_SECRET` in `.env` in step 5.
+The account number (first 8 digits - last 2 digits) goes into `KIS_ACCOUNT_NO`. Example: `12345678-01`
 
-## 2. 카카오톡 나에게 보내기 설정 (약 20분)
+## 2. KakaoTalk Send-to-Myself Setup (about 20 min)
 
-내 카카오톡으로 알림을 보내기 위한 설정. 심사 없이 개인 앱으로 가능하다.
+This setup lets the bot send alerts to your own KakaoTalk. It works as a personal app with no review process.
 
-1. https://developers.kakao.com 접속, 카카오 계정으로 로그인
-2. `내 애플리케이션 > 애플리케이션 추가하기` → 앱 이름 예: `stock-alert` (아무거나 가능)
-3. 만든 앱 선택 → `앱 키` 메뉴에서 REST API 키 복사 → `.env`의 `KAKAO_REST_API_KEY`에 사용
-4. `제품 설정 > 카카오 로그인` → 활성화 ON
-5. Redirect URI에 `http://localhost:8080` 등록 — 콘솔 개편 후 위치는 `앱 > 플랫폼 키`의
-   REST API 키 섹션 안 "리다이렉트 URI" 영역이다 (끝에 `/` 붙이지 말 것, KOE006 원인)
-6. `제품 설정 > 카카오 로그인 > 동의항목` → "카카오톡 메시지 전송(talk_message)" 을 선택 동의로 설정.
-   반드시 8번(브라우저 로그인) 전에 끝낼 것 — 동의항목 설정 전에 로그인하면 메시지 권한 없이
-   앱만 연결되고, 발송 시 403(-402 insufficient scopes)이 난다. 그 경우 다시 로그인해 추가 동의하면 된다
-7. `제품 설정 > 카카오 로그인 > 보안`에서 Client Secret을 활성화했다면 그 값을 `.env`의
-   `KAKAO_CLIENT_SECRET`에 넣는다 (활성화 상태에서 이 값 없이 토큰 요청하면 KOE010 에러)
+1. Go to https://developers.kakao.com and log in with your Kakao account
+2. `내 애플리케이션 > 애플리케이션 추가하기` (My Applications > Add Application) → app name e.g. `stock-alert` (anything works)
+3. Select the new app → copy the REST API key from the `앱 키` (App Keys) menu → use it as `KAKAO_REST_API_KEY` in `.env`
+4. `제품 설정 > 카카오 로그인` (Product Settings > Kakao Login) → toggle it ON
+5. Register `http://localhost:8080` as a Redirect URI — after the console redesign, this lives in the `리다이렉트 URI` (Redirect URI) area inside the REST API key section under `앱 > 플랫폼 키` (App > Platform Keys). (Do not append a trailing `/` — that causes KOE006.)
+6. `제품 설정 > 카카오 로그인 > 동의항목` (Product Settings > Kakao Login > Consent Items) → set `카카오톡 메시지 전송 (talk_message)` (send KakaoTalk message) to optional consent.
+   Be sure to finish this before step 8 (browser login) — if you log in before configuring the consent item, the app gets linked without the message permission, and sending fails with 403 (-402 insufficient scopes). In that case, log in again and grant the additional consent.
+7. If you enabled Client Secret under `제품 설정 > 카카오 로그인 > 보안` (Product Settings > Kakao Login > Security), put that value into `KAKAO_CLIENT_SECRET` in `.env` (requesting a token without this value while it is enabled causes a KOE010 error)
 
-이제 최초 1회 토큰을 발급받는다. 이 과정만 브라우저가 필요하고, 이후에는 봇이 자동 갱신한다.
+Now issue the initial tokens, one time only. This is the only part that needs a browser; after this the bot refreshes tokens automatically.
 
-8. 브라우저 주소창에 아래 URL을 넣는다 (REST_API_KEY 부분 교체):
+8. Paste the URL below into the browser address bar (replace the REST_API_KEY part):
 
 ```
 https://kauth.kakao.com/oauth/authorize?client_id=REST_API_KEY&redirect_uri=http://localhost:8080&response_type=code&scope=talk_message
 ```
 
-   동의 화면에 "카카오톡 메시지 전송" 체크가 보이는지 확인하고 동의한다.
-9. 동의하고 계속하기를 누르면 `http://localhost:8080/?code=XXXX...` 로 이동하며 "연결할 수 없음" 페이지가 뜬다. 정상이다. 주소창에서 `code=` 뒤의 값을 복사한다.
-   (코드를 손으로 옮기다 글자를 잘못 읽으면 KOE320이 난다. 실수를 피하려면 8080 포트에
-   임시 수신 서버를 띄워 자동으로 받는 방법도 있다 — 최초 세팅 때 그렇게 진행했다)
-10. 터미널에서 인가 코드를 토큰으로 교환한다 (코드는 발급 후 몇 분 안에 1회만 사용 가능,
-    Client Secret 활성화 시 `-d client_secret=값` 줄 추가):
+   On the consent screen, confirm that the `카카오톡 메시지 전송` (send KakaoTalk message) checkbox is shown, then agree.
+9. After you agree and continue, the browser is redirected to `http://localhost:8080/?code=XXXX...` and shows a "can't connect" page. This is expected. Copy the value after `code=` from the address bar.
+   (Misreading a character while copying the code by hand causes KOE320. To avoid mistakes, you can also run a temporary listener on port 8080 to capture the code automatically — that is how the initial setup was done.)
+10. In the terminal, exchange the authorization code for tokens (the code is single-use and expires within a few minutes of issuance; if Client Secret is enabled, add the `-d client_secret=...` line):
 
 ```
 curl -X POST https://kauth.kakao.com/oauth/token \
@@ -73,57 +67,59 @@ curl -X POST https://kauth.kakao.com/oauth/token \
   -d code=복사한_코드
 ```
 
-11. 응답 JSON의 access_token과 refresh_token을 `data/kakao_tokens.json` 파일로 저장한다:
+    (In the command above, `CLIENT_SECRET값_활성화시에만` is a placeholder for "your Client Secret — only when enabled", and `복사한_코드` for "the code you copied in step 9".)
+
+11. Save the access_token and refresh_token from the JSON response into the file `data/kakao_tokens.json`:
 
 ```
 {
-  "access_token": "응답의 access_token 값",
-  "refresh_token": "응답의 refresh_token 값"
+  "access_token": "access_token value from the response",
+  "refresh_token": "refresh_token value from the response"
 }
 ```
 
 ```
-mkdir -p data && vi data/kakao_tokens.json   # 위 내용 붙여넣기
+mkdir -p data && vi data/kakao_tokens.json   # paste the content above
 ```
 
-참고: access token은 12시간, refresh token은 60일 유효하다.
-봇이 돌아가는 동안에는 자동으로 갱신하며 파일도 알아서 덮어쓴다.
-단, 봇이 2개월 이상 꺼져 있었다면 refresh token이 만료되므로 8~11번을 다시 하면 된다.
-그 경우 봇이 이메일로 "[stock-alert] 카카오 재로그인 필요" 경고를 보내준다.
+Note: the access token is valid for 12 hours, the refresh token for 60 days.
+While the bot is running, it refreshes them automatically and overwrites the file on its own.
+However, if the bot has been off for 2+ months, the refresh token expires — just redo steps 8-11.
+In that case the bot sends a warning email titled "[stock-alert] 카카오 재로그인 필요" (Kakao re-login required).
 
-## 3. 구글시트 + 서비스 계정 (약 20분)
+## 3. Google Sheets + Service Account (about 20 min)
 
-봇이 사람 로그인 없이 시트에 쓰게 하려면 서비스 계정이 필요하다.
+A service account is required so the bot can write to the sheet without a human login.
 
-1. https://console.cloud.google.com 접속 → 새 프로젝트 생성 (이름 예: stock-alert)
-2. `API 및 서비스 > 라이브러리`에서 Google Sheets API 검색 → 사용 설정. 같은 방법으로 Google Drive API도 사용 설정
-3. `API 및 서비스 > 사용자 인증 정보 > 사용자 인증 정보 만들기 > 서비스 계정` → 이름 입력 후 생성 (역할은 비워도 됨)
-4. 만든 서비스 계정 클릭 → `키` 탭 → `키 추가 > 새 키 만들기 > JSON` → 다운로드
-5. 다운로드한 파일을 프로젝트로 옮긴다:
+1. Go to https://console.cloud.google.com → create a new project (name e.g. stock-alert)
+2. In `API 및 서비스 > 라이브러리` (APIs & Services > Library), search for Google Sheets API → enable it. Enable the Google Drive API the same way
+3. `API 및 서비스 > 사용자 인증 정보 > 사용자 인증 정보 만들기 > 서비스 계정` (APIs & Services > Credentials > Create Credentials > Service Account) → enter a name and create it (the role can be left empty)
+4. Click the created service account → `키` (Keys) tab → `키 추가 > 새 키 만들기 > JSON` (Add Key > Create New Key > JSON) → download
+5. Move the downloaded file into the project:
 
 ```
 mkdir -p secrets
 mv ~/Downloads/stock-alert-*.json secrets/service_account.json
 ```
 
-6. https://sheets.google.com 에서 새 스프레드시트를 만든다 (이름 예: 주식 매매기록)
-7. 시트 우측 상단 `공유` → 서비스 계정 이메일(`xxx@프로젝트ID.iam.gserviceaccount.com`, JSON 파일 안 client_email 값)을 편집자 권한으로 추가
+6. Create a new spreadsheet at https://sheets.google.com (name e.g. `주식 매매기록`, "stock trade log")
+7. Click `공유` (Share) at the top right of the sheet → add the service account email (`xxx@PROJECT_ID.iam.gserviceaccount.com`, the client_email value inside the JSON file) with editor permission
 
-이 7번 공유를 빼먹는 것이 가장 흔한 실수다. 공유하지 않으면 봇이 시트를 찾지 못한다.
+Skipping the share in step 7 is the most common mistake. Without it, the bot cannot find the sheet.
 
-8. 시트 URL에서 SHEET_ID를 복사한다. `/d/` 와 `/edit` 사이 문자열이다:
+8. Copy the SHEET_ID from the sheet URL. It is the string between `/d/` and `/edit`:
 
 ```
-https://docs.google.com/spreadsheets/d/1AbCdEfGh.../edit   ← 1AbCdEfGh... 부분
+https://docs.google.com/spreadsheets/d/1AbCdEfGh.../edit   ← the 1AbCdEfGh... part
 ```
 
-## 4. Gmail 앱 비밀번호 (약 5분)
+## 4. Gmail App Password (about 5 min)
 
-1. https://myaccount.google.com → 보안 → 2단계 인증이 꺼져 있으면 켠다
-2. https://myaccount.google.com/apppasswords 접속 → 앱 이름 입력 (예: stock-alert) → 생성
-3. 표시되는 16자리 비밀번호를 복사 → `.env`의 `GMAIL_APP_PASSWORD`에 사용 (공백 제거)
+1. https://myaccount.google.com → `보안` (Security) → turn on 2-Step Verification if it is off
+2. Go to https://myaccount.google.com/apppasswords → enter an app name (e.g. stock-alert) → create
+3. Copy the 16-character password shown → use it as `GMAIL_APP_PASSWORD` in `.env` (remove the spaces)
 
-## 5. 로컬 설치와 .env 작성 (약 10분)
+## 5. Local Install and .env Setup (about 10 min)
 
 ```
 cd ~/stock-alert
@@ -132,92 +128,90 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-`.env`를 열어 1~4번에서 준비한 값을 채운다.
-처음에는 `KIS_ENV=vps`(모의투자) + 모의투자용 앱키로 시작하는 것을 권장한다.
-모의 계좌에서 미국 주식을 한두 건 사보고 봇이 잘 기록하는지 확인한 뒤 실전으로 바꾼다.
+Open `.env` and fill in the values prepared in steps 1-4.
+Starting with `KIS_ENV=vps` (paper trading) plus the paper-trading app key is recommended.
+Buy one or two US stocks in the paper account, confirm the bot records them correctly, then switch to production.
 
-감시 종목 임계값(기본 10%)을 바꾸고 싶으면 `DEFAULT_DROP_PCT`, `DEFAULT_RISE_PCT`를 수정한다.
-종목별로 다르게 하려면 나중에 시트의 설정 탭에서 조정하면 된다.
+To change the watch thresholds (default 10%), edit `DEFAULT_DROP_PCT` and `DEFAULT_RISE_PCT`.
+For per-ticker thresholds, adjust them later in the sheet's 설정 (Settings) tab.
 
-## 6. 시트 초기화 (1분)
+## 6. Sheet Initialization (1 min)
 
 ```
 .venv/bin/python scripts/init_sheet.py
 ```
 
-시트에 거래내역 / 활성감시 / 알림로그 / 설정 4개 탭과 헤더가 생긴다.
-끝나면 시트를 열어 설정 탭에 감시할 종목을 입력한다. 예:
+This creates four tabs with headers in the sheet: 거래내역 (trade history) / 활성감시 (active watches) / 알림로그 (alert log) / 설정 (settings).
+When it finishes, open the sheet and enter the tickers to watch in the 설정 (Settings) tab. Example:
 
-| 종목코드 | 거래소 | 하락임계% | 상승임계% | 감시 | 메모 |
+| 종목코드 (Ticker) | 거래소 (Exchange) | 하락임계% (Drop threshold %) | 상승임계% (Rise threshold %) | 감시 (Watch) | 메모 (Memo) |
 |---|---|---|---|---|---|
 | TSLA | NAS | | | Y | |
-| PLTR | NYS | 15 | 10 | Y | 변동 큰 종목이라 15% |
+| PLTR | NYS | 15 | 10 | Y | Volatile ticker, so 15% |
 
-거래소는 NAS(나스닥) / NYS(뉴욕) / AMS(아멕스). 임계값을 비우면 .env 기본값을 쓴다.
+Exchanges: NAS (Nasdaq) / NYS (NYSE) / AMS (AMEX). Leave a threshold empty to use the `.env` default.
 
-## 7. 1회 실행 테스트 (약 5분)
+## 7. Single-Run Test (about 5 min)
 
 ```
 .venv/bin/python -m src.main --once
 ```
 
-확인 포인트:
-- 에러 없이 한 사이클이 끝나는지
-- 최근 체결이 있다면 거래내역 탭에 행이 생기고, 활성감시 탭에 lot이 생기는지
-- 알림 조건을 이미 충족한 lot이 있으면 카카오톡과 메일이 실제로 오는지
+What to check:
+- The cycle completes without errors
+- If there are recent fills, rows appear in the 거래내역 (trade history) tab and lots appear in the 활성감시 (active watches) tab
+- If any lot already meets an alert condition, the KakaoTalk message and email actually arrive
 
-이 단계에서 KIS 응답 필드명이 예상과 달라 에러가 날 수 있다 (코드가 실계정 없이 작성된 초안이라).
-그 경우 에러 메시지를 Claude에게 보여주면 바로 보정할 수 있다.
+At this stage, errors may occur because KIS response field names differ from what the code expects (the code was drafted without access to a real account).
+If that happens, show the error message to Claude and it can be corrected right away.
 
-## 8. 상시 구동 등록 — launchd (약 5분)
+## 8. Always-On Registration — launchd (about 5 min)
 
-맥 재부팅 후에도 자동 시작되고, 죽으면 자동 재시작되게 등록한다.
+Register the bot so it starts automatically after a Mac reboot and restarts automatically if it dies.
 
 ```
 cp deploy/com.jaewon.stock-alert.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jaewon.stock-alert.plist
 ```
 
-상태 확인 / 로그:
+Status check / logs:
 
 ```
 launchctl list | grep stock-alert
 tail -f logs/stdout.log
 ```
 
-중지와 재시작:
+Stop and restart:
 
 ```
-launchctl bootout gui/$(id -u)/com.jaewon.stock-alert      # 중지(등록 해제)
-launchctl kickstart -k gui/$(id -u)/com.jaewon.stock-alert  # 강제 재시작
+launchctl bootout gui/$(id -u)/com.jaewon.stock-alert      # stop (unregister)
+launchctl kickstart -k gui/$(id -u)/com.jaewon.stock-alert  # force restart
 ```
 
-## 9. 맥 잠자기 방지 (약 5분)
+## 9. Preventing Mac Sleep (about 5 min)
 
-미국 정규장은 한국시간 밤 22:30~새벽 5시(서머타임 기준, 겨울은 23:30~6시)다.
-맥이 잠들면 봇도 같이 멈추므로 이 설정이 없으면 알림이 오지 않는다.
+US regular trading hours are 22:30-05:00 Korea time (during daylight saving; 23:30-06:00 in winter).
+If the Mac sleeps, the bot stops with it, so without this setup no alerts will arrive.
 
-이 프로젝트는 launchd plist가 `caffeinate -i`로 봇을 실행한다. 봇이 도는 동안에만
-유휴 잠자기를 막고, 봇을 끄면 원래 잠자기 설정으로 돌아온다. sudo도 필요 없다.
-확인:
+In this project, the launchd plist runs the bot under `caffeinate -i`. Idle sleep is blocked only while the bot is running; stop the bot and the original sleep settings take over again. No sudo required.
+To verify:
 
 ```
 pmset -g assertions | grep caffeinate
 ```
 
-("asserting on behalf of ... python" 이 보이면 잠자기 방지가 걸린 것)
+(If you see "asserting on behalf of ... python", sleep prevention is active.)
 
-주의:
-- 전원 어댑터를 항상 연결해둔다 (배터리만으로는 macOS가 잠들 수 있음).
-- 노트북 뚜껑을 닫으면 caffeinate로도 못 막고 잠든다. 밤새 돌리려면 뚜껑을 열어두거나,
-  외장 모니터를 연결한 클램셸 모드로 쓴다. 디스플레이는 꺼져도 되고 시스템만 깨어 있으면 된다.
+Caveats:
+- Keep the power adapter connected at all times (on battery alone, macOS may still sleep).
+- Closing the laptop lid puts the Mac to sleep even with caffeinate. To run overnight, leave the lid open, or use clamshell mode with an external monitor connected. The display may turn off — only the system needs to stay awake.
 
-(caffeinate 방식 대신 시스템 전체 잠자기를 끄고 싶으면 `sudo pmset -c sleep 0 disksleep 0`)
+(If you prefer disabling system-wide sleep instead of the caffeinate approach: `sudo pmset -c sleep 0 disksleep 0`)
 
-## 10. 문제 해결
+## 10. Troubleshooting
 
-- `EGW00133` (토큰 발급 실패): 접근토큰 재발급은 1분당 1회 제한이다. 1분 기다렸다 다시 실행. 봇은 토큰을 data/kis_token.json에 캐싱하므로 평소에는 발생하지 않는다. 여러 프로그램이 같은 앱키를 쓰면 충돌하니 주의.
-- `EGW00201` (초당 호출 초과): 감시 종목이 아주 많을 때 발생 가능. POLL_INTERVAL_MIN을 늘리거나 종목 수를 줄인다. 신규 고객 한도(1번 공지)도 확인.
-- `SpreadsheetNotFound` 또는 `PERMISSION_DENIED` (gspread): 3-7번 시트 공유 누락이 원인의 대부분. 서비스 계정 이메일에 편집자로 공유했는지, SHEET_ID가 맞는지 확인.
-- 카카오 401 에러: access token 만료인데 갱신도 실패한 상태. data/kakao_tokens.json 이 있는지, 2개월 이상 봇을 꺼두지 않았는지 확인. 만료됐으면 2단계 7~10번 재수행.
-- 시세가 0으로 나옴: 장외 시간이거나 거래소 코드(NAS/NYS/AMS)가 틀린 경우. 설정 탭의 거래소 값을 확인.
+- `EGW00133` (token issuance failed): access-token reissuance is limited to once per minute. Wait a minute and run again. The bot caches the token in data/kis_token.json, so this normally does not occur. Beware that multiple programs sharing the same app key will conflict.
+- `EGW00201` (per-second call limit exceeded): possible with a very large watch list. Increase POLL_INTERVAL_MIN or reduce the number of tickers. Also check the new-customer limit (the notice in section 1).
+- `SpreadsheetNotFound` or `PERMISSION_DENIED` (gspread): almost always the missing sheet share from step 3-7. Check that the sheet is shared with the service account email as editor, and that SHEET_ID is correct.
+- Kakao 401 error: the access token expired and the refresh also failed. Check that data/kakao_tokens.json exists and that the bot has not been off for 2+ months. If expired, redo steps 7-10 of section 2.
+- Prices show as 0: outside market hours, or the exchange code (NAS/NYS/AMS) is wrong. Check the exchange value in the 설정 (Settings) tab.
