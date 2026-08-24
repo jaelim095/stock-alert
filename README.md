@@ -43,6 +43,11 @@ localhost 전용. 계좌 정보가 표시되므로 외부에 배포하지 않는
 
 ![이동평균 현황](docs/images/dashboard-ma.png)
 
+## 블로그 (만든 과정)
+
+- [AI 멀티 에이전트로 주식비서 만들기](https://medium.com/@jaelim095/ai-%EB%A9%80%ED%8B%B0-%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%EB%A1%9C-%EC%A3%BC%EC%8B%9D%EB%B9%84%EC%84%9C-%EB%A7%8C%EB%93%A4%EA%B8%B0-2244199cf8f9)
+- [Building an AI Stock Assistant with Multi-Agents (EN)](https://medium.com/@jaelim095/building-an-ai-stock-assistant-with-multi-agents-0b7b7130439e)
+
 ## 문서
 
 - 설계: `docs/02-design.md`
