@@ -1,18 +1,20 @@
 #!/usr/bin/env python
-"""과거 체결 백필 — 일회성, 조회 전용, 거래내역 탭에만 기록.
+"""Backfill past executions — one-off, read-only, writes only to the 거래내역 tab.
 
-봇은 2일 조회창만 보므로 봇이 죽어 있던 기간의 체결은 영영 수집되지 않는다
-(실사례: 2026-07-20~30 정지 중 TSLL 230주 매수 누락). 이 스크립트가 과거
-구간을 30일 조각으로 걸어가며 시트에 없는 체결을 채운다.
+The bot only looks at a 2-day window, so executions from periods when the bot
+was down are never collected (real case: a 230-share TSLL buy was missed during
+the 2026-07-20~30 outage). This script walks backwards through the past in
+30-day chunks and fills in executions missing from the sheet.
 
-원칙:
-- lot은 만들지 않는다. 과거 체결로 lot을 만들면 -10/-20/-30 계단 알림이
-  한꺼번에 터진다. 비고에 "백필"만 남긴다 (seed 이전 체결과 같은 취급).
-  감시 lot 수량 보정은 사용자가 시트 활성감시 탭에서 직접 한다.
-- KIS 체결내역 조회는 과거 기간 상한이 있을 수 있다 — 조회가 실패하는
-  조각을 만나면 거기서 멈추고 실제 도달 범위를 보고한다.
+Principles:
+- No lots are created. Creating lots from past executions would fire the
+  -10/-20/-30 ladder alerts all at once. Only "백필" is written to the note
+  field (same treatment as pre-seed executions). The user adjusts watched-lot
+  quantities directly in the sheet's 활성감시 tab.
+- KIS execution inquiries may have an upper bound on how far back they reach —
+  when a chunk fails to fetch, stop there and report the range actually reached.
 
-사용: backfill_trades.py [--days 90] [--dry-run]
+Usage: backfill_trades.py [--days 90] [--dry-run]
 """
 import argparse
 import sys
@@ -55,15 +57,15 @@ def main():
     print(f"시트 기존 거래 {len(existing)}건")
 
     today = datetime.now(US_EASTERN).date()
-    # 어제·오늘 제외: 미정산 체결이 섞인 구간은 SYDB0050(조회 이후 자료 변경)을
-    # 낸다 (실측: D-1 실패, D-2 성공). 그 이틀은 봇의 2일 창이 담당 — 공백 없음.
+    # Exclude yesterday and today: ranges containing unsettled executions raise
+    # SYDB0050 (measured: D-1 fails, D-2 works). The bot's 2-day window covers those two days — no gap.
     end = today - timedelta(days=2)
     new_rows, reached = [], end
     while end > today - timedelta(days=args.days):
         start = max(end - timedelta(days=CHUNK_DAYS - 1),
                     today - timedelta(days=args.days))
         fetched = None
-        for attempt in (1, 2, 3):  # SYDB0050(조회 중 자료 변경) 등 일시 오류 재시도
+        for attempt in (1, 2, 3):  # retry transient errors such as SYDB0050 (data changed during inquiry)
             try:
                 fetched = kis.fetch_executions(start=start, end=end)
                 break

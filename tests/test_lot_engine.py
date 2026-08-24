@@ -1,4 +1,4 @@
-"""lot_engine 순수 로직 테스트. 설계 문서의 예시 시나리오를 그대로 재현한다."""
+"""Pure-logic tests for lot_engine. Reproduces the design doc's example scenarios verbatim."""
 from datetime import datetime, timedelta
 
 from src.lot_engine import (
@@ -28,35 +28,35 @@ def lot_by_id(lots, lot_id):
 
 
 def test_user_scenario_end_to_end():
-    """5/1 매수 → 물타기 2회 → 6/15 매도 → 7/1 매도 알림 → 재매수 알림."""
+    """5/1 buy → average down twice → 6/15 sell → 7/1 sell alert → re-buy alert."""
     lots = []
-    # 5/1: $100 × 10주 매수
+    # 5/1: buy $100 × 10 shares
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1"))], lots)
     assert lots[0]["lot_id"] == "TSLA-20260501-1"
 
-    # 5/5: $90 → $100 lot 추가매수 알림
+    # 5/5: $90 → buy-more alert on the $100 lot
     alerts = ev(lots, 90.0, datetime(2026, 5, 5))
     assert [(a["lot_id"], a["condition"]) for a in alerts] == \
         [("TSLA-20260501-1", "추가매수-10%")]
 
-    # 5/5: $90 × 15주 매수
+    # 5/5: buy $90 × 15 shares
     process_trades([new(trade("2026-05-05", "매수", 90.0, 15, "2"))], lots)
 
-    # 5/15: $81 → $90 lot 신규 알림 (+$100 lot은 10일 지나 리마인드)
+    # 5/15: $81 → new alert on the $90 lot (+ the $100 lot gets a reminder after 10 days)
     alerts = ev(lots, 81.0, datetime(2026, 5, 15))
     got = {(a["lot_id"], a["condition"]) for a in alerts}
     assert ("TSLA-20260505-1", "추가매수-10%") in got
     assert ("TSLA-20260501-1", "리마인드(추가매수-10%)") in got
 
-    # 5/15: $81 × 5주 매수
+    # 5/15: buy $81 × 5 shares
     process_trades([new(trade("2026-05-15", "매수", 81.0, 5, "3"))], lots)
 
-    # 6/15: $89.1 → $81 lot 매도 알림 (81 × 1.1 = 89.1)
+    # 6/15: $89.1 → sell alert on the $81 lot (81 × 1.1 = 89.1)
     alerts = ev(lots, 89.1, datetime(2026, 6, 15))
     rise = [a for a in alerts if a["condition"] == "매도+10%"]
     assert [a["lot_id"] for a in rise] == ["TSLA-20260515-1"]
 
-    # 6/15: $89.1 × 5주 매도 → 수량 일치로 $81 lot 종료 + 매도기준점 생성
+    # 6/15: sell $89.1 × 5 shares → exact qty match closes the $81 lot + creates a sell reference point
     ann = process_trades([new(trade("2026-06-15", "매도", 89.1, 5, "4"))], lots)
     closed = lot_by_id(lots, "TSLA-20260515-1")
     assert closed["status"] == ST_CLOSED and closed["closed_reason"] == "전량매도"
@@ -64,19 +64,19 @@ def test_user_scenario_end_to_end():
     sp = next(l for l in lots if l["kind"] == KIND_SELL)
     assert sp["status"] == ST_ACTIVE and sp["base_price"] == 89.1 and sp["qty"] == 5
 
-    # 7/1: $99 → $90 lot 매도 알림 (90 × 1.1 = 99)
+    # 7/1: $99 → sell alert on the $90 lot (90 × 1.1 = 99)
     alerts = ev(lots, 99.0, datetime(2026, 7, 1))
     rise = [a for a in alerts if a["condition"] == "매도+10%"]
     assert [a["lot_id"] for a in rise] == ["TSLA-20260505-1"]
 
-    # 이후 $80.19 → 매도기준점(89.1) 대비 -10% 재매수 알림
+    # then $80.19 → re-buy alert at -10% vs the sell reference point (89.1)
     alerts = ev(lots, 80.19, datetime(2026, 7, 2))
     rebuy = [a for a in alerts if a["condition"] == "재매수-10%"]
     assert [a["lot_id"] for a in rebuy] == [sp["lot_id"]]
 
 
 def test_partial_sell_lifo():
-    """수량 불일치 매도는 최신 lot부터(LIFO) 분할 소진."""
+    """A sell with no exact qty match consumes lots newest-first (LIFO), splitting."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
                     new(trade("2026-05-05", "매수", 90.0, 15, "2"))], lots)
@@ -89,7 +89,7 @@ def test_partial_sell_lifo():
 
 
 def test_oversell_noted():
-    """감시 lot 합계보다 큰 매도는 초과분을 비고에 남긴다."""
+    """A sell exceeding the watched-lot total leaves the excess in the 비고 note."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1"))], lots)
     ann = process_trades([new(trade("2026-05-10", "매도", 95.0, 13, "2"))], lots)
@@ -98,15 +98,15 @@ def test_oversell_noted():
 
 
 def test_drop_ladder():
-    """-10% 알림 후 -20%에서 새 알림, -10% 재진입 시 재알림 없음."""
+    """After a -10% alert, a new alert fires at -20%; re-entering -10% does not re-alert."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1"))], lots)
     t = datetime(2026, 5, 2)
     assert [a["condition"] for a in ev(lots, 90.0, t)] == ["추가매수-10%"]
     assert ev(lots, 89.0, t + timedelta(hours=1)) == []
     assert [a["condition"] for a in ev(lots, 80.0, t + timedelta(hours=2))] == ["추가매수-20%"]
-    assert ev(lots, 89.0, t + timedelta(hours=3)) == []  # -10% 재진입
-    assert ev(lots, 95.0, t + timedelta(hours=4)) == []  # 조건 해소
+    assert ev(lots, 89.0, t + timedelta(hours=3)) == []  # re-entering -10%
+    assert ev(lots, 95.0, t + timedelta(hours=4)) == []  # condition cleared
 
 
 def test_reminder_after_24h():
@@ -130,7 +130,7 @@ def test_rise_alert_once_then_reminder():
 
 
 def test_partial_fill_qty_update():
-    """같은 주문번호의 수량 증가(부분 체결)는 lot 수량으로 보정."""
+    """A qty increase on the same order no (partial fill) adjusts the lot qty."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 5, "1"))], lots)
     updated = trade("2026-05-01", "매수", 100.0, 10, "1")
@@ -150,7 +150,7 @@ def test_new_buy_closes_sell_points():
 
 
 def test_disabled_ticker_no_alerts_but_lots_kept():
-    """감시=N 이어도 lot 기록은 유지되고 알림만 안 나간다."""
+    """With 감시=N, lot records are still kept and only alerts are suppressed."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1"))], lots)
     off = {"TSLA": {"excd": "NAS", "drop_pct": 10, "rise_pct": 10, "enabled": False}}
@@ -166,7 +166,7 @@ def test_missing_price_skips_evaluation():
 
 
 def test_per_ticker_threshold_override():
-    """설정 탭의 종목별 임계값(15%)이 기본값(10%) 대신 적용된다."""
+    """The per-ticker threshold (15%) from the 설정 tab applies instead of the default (10%)."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1"))], lots)
     s15 = {"TSLA": {"excd": "NAS", "drop_pct": 15, "rise_pct": 15, "enabled": True}}
@@ -190,7 +190,7 @@ def test_message_format_single():
 
 
 def test_message_format_grouped():
-    """같은 주기에 여러 lot이 걸리면 한 메시지로 묶인다."""
+    """Multiple lots triggering in the same cycle are grouped into one message."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
                     new(trade("2026-05-05", "매수", 98.0, 10, "2"))], lots)
@@ -202,7 +202,7 @@ def test_message_format_grouped():
 
 
 def test_exact_match_prefers_latest_lot():
-    """수량 정확 일치 lot이 여러 개면 가장 최근 lot이 종료된다."""
+    """When multiple lots exactly match the qty, the most recent one is closed."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
                     new(trade("2026-05-05", "매수", 90.0, 10, "2"))], lots)
@@ -213,7 +213,7 @@ def test_exact_match_prefers_latest_lot():
 
 
 def test_lifo_spans_multiple_lots():
-    """수량 불일치 매도가 여러 lot에 걸치면 최신부터 소진하고 매칭을 전부 기록한다."""
+    """A no-exact-match sell spanning multiple lots drains newest-first and records every match."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
                     new(trade("2026-05-05", "매수", 90.0, 15, "2"))], lots)
@@ -225,7 +225,7 @@ def test_lifo_spans_multiple_lots():
 
 
 def test_sell_qty_update_rematches_by_total():
-    """매도 주문이 5+5로 나뉘어 체결돼도 단일 10주 체결과 같은 최종 상태가 된다."""
+    """A sell order filled as 5+5 ends in the same final state as a single 10-share fill."""
     def base_lots():
         lots = []
         process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
@@ -237,11 +237,11 @@ def test_sell_qty_update_rematches_by_total():
 
     split = base_lots()
     ann1 = process_trades([new(trade("2026-05-10", "매도", 95.0, 5, "3"))], split)
-    assert ann1["3"]["matched_lots"] == "TSLA-20260505-1:5"  # 청크 기준 정확 일치
+    assert ann1["3"]["matched_lots"] == "TSLA-20260505-1:5"  # exact match on the chunk
     upd = trade("2026-05-10", "매도", 95.0, 10, "3")
     ann2 = process_trades([{"type": "qty_update", "trade": upd, "old_qty": 5,
                             "prev_matched": ann1["3"]["matched_lots"]}], split)
-    assert ann2["3"]["matched_lots"] == "TSLA-20260501-1:10"  # 총수량 기준 재매칭
+    assert ann2["3"]["matched_lots"] == "TSLA-20260501-1:10"  # re-matched on the total qty
     for lid in ("TSLA-20260501-1", "TSLA-20260505-1"):
         s, p = lot_by_id(single, lid), lot_by_id(split, lid)
         assert (s["qty"], s["status"]) == (p["qty"], p["status"])
@@ -250,7 +250,7 @@ def test_sell_qty_update_rematches_by_total():
 
 
 def test_buy_qty_update_closes_sell_points():
-    """매수 추가 체결(qty_update)도 새 매수이므로 매도기준점을 닫는다."""
+    """An additional buy fill (qty_update) is still a new buy, so it closes sell reference points."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
                     new(trade("2026-05-03", "매도", 105.0, 4, "2"))], lots)
@@ -263,18 +263,18 @@ def test_buy_qty_update_closes_sell_points():
 
 
 def test_drop_ladder_skips_levels_and_reaches_30():
-    """-25% 직행 시 -20% 단계 알림 1건만, 이후 -30% 도달 시 새 알림."""
+    """Dropping straight to -25% fires only the -20% step alert; reaching -30% later fires a new one."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1"))], lots)
     t = datetime(2026, 5, 2)
     assert [a["condition"] for a in ev(lots, 75.0, t)] == ["추가매수-20%"]
-    assert ev(lots, 89.0, t + timedelta(hours=1)) == []  # 얕은 단계 재진입 무알림
+    assert ev(lots, 89.0, t + timedelta(hours=1)) == []  # re-entering a shallower step: no alert
     alerts = ev(lots, 70.0, t + timedelta(hours=2))
     assert [a["condition"] for a in alerts] == ["추가매수-30%"]
 
 
 def test_alert_state_json_roundtrip():
-    """alert_state가 시트 저장(JSON 문자열) 왕복 후에도 계단·리마인드를 유지한다."""
+    """alert_state keeps ladder and reminder behavior after a sheet round-trip (JSON string)."""
     import json
 
     def roundtrip(lots):
@@ -286,14 +286,14 @@ def test_alert_state_json_roundtrip():
     t = datetime(2026, 5, 2)
     ev(lots, 90.0, t)
     roundtrip(lots)
-    assert ev(lots, 89.0, t + timedelta(hours=1)) == []  # drop_level 유지
+    assert ev(lots, 89.0, t + timedelta(hours=1)) == []  # drop_level preserved
     roundtrip(lots)
-    alerts = ev(lots, 89.5, t + timedelta(hours=25))     # last_alert 유지 → 리마인드
+    alerts = ev(lots, 89.5, t + timedelta(hours=25))     # last_alert preserved → reminder
     assert [a["condition"] for a in alerts] == ["리마인드(추가매수-10%)"]
 
 
 def test_lot_id_uses_max_seq_after_deletion():
-    """사용자가 시트에서 lot 행을 지워도 새 lot_id가 기존 id와 중복되지 않는다."""
+    """Even if the user deletes lot rows in the sheet, new lot_ids never collide with existing ones."""
     lots = []
     process_trades([new(trade("2026-05-01", "매수", 100.0, 10, "1")),
                     new(trade("2026-05-01", "매수", 101.0, 10, "2"))], lots)
@@ -304,7 +304,7 @@ def test_lot_id_uses_max_seq_after_deletion():
 
 
 def test_norm_order_no():
-    """선행 0 유무가 달라도(시트 숫자 변환) 같은 주문으로 판정된다."""
+    """Orders match even when leading zeros differ (sheet numeric coercion)."""
     from src.state_cache import norm_order_no
     assert norm_order_no("0000117057") == norm_order_no("117057") == "117057"
     assert norm_order_no("0") == "0"

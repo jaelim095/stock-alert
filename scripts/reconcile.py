@@ -1,18 +1,19 @@
 #!/usr/bin/env python
-"""잔고 대 lot 정합성 대조 (조회 전용).
+"""Balance vs lot consistency check (read-only).
 
-시트가 source of truth라 사용자가 직접 고칠 수 있고, 봇이 죽어 있는 동안의
-체결은 2일 조회창을 벗어나면 영영 수집되지 않는다 — 그래서 어긋남은 예외가
-아니라 상시 위험이다. 어긋나면 알림 문구의 "보유 N주·평단 $X" 요약도 틀린
-값을 말하게 되므로 매일 한 번 기계적으로 대조한다.
+The sheet is the source of truth, so the user can edit it directly, and any
+executions made while the bot is down are never collected once they leave the
+2-day lookup window — so drift is a standing risk, not an exception. When lots
+drift, the "보유 N주·평단 $X" summary in alert messages also reports wrong
+numbers, so this compares them mechanically once a day.
 
-검사:
-1) 감시 종목별: KIS 실제 보유수량 vs 활성 매수lot 수량 합 (1주 이상 차이 = 위반)
-2) 설정 탭 감시=Y 인데 활성 lot이 하나도 없음
-3) 거래내역 order_no 중복 (선행 0 정규화 후)
+Checks:
+1) Per watched ticker: actual KIS holding qty vs active buy-lot qty sum (1+ share diff = violation)
+2) 감시=Y in the 설정 tab but not a single active lot
+3) Duplicate order_no in the 거래내역 tab (after leading-zero normalization)
 
-종료 코드: 0=정합 / 1=위반 발견 / 2=실행 오류
-사용: reconcile.py [--email-on-violation]
+Exit codes: 0=consistent / 1=violations found / 2=runtime error
+Usage: reconcile.py [--email-on-violation]
 """
 import sys
 from pathlib import Path

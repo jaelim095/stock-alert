@@ -1,10 +1,10 @@
-"""보유·감시·매매 현황 스냅샷 (조회 전용) — /checkup 스킬의 데이터 소스.
+"""Snapshot of holdings, watch settings, and trades (read-only) — data source for the /checkup skill.
 
-한투 잔고 + 구글시트(활성감시·설정·최근 매매)를 마크다운으로 출력한다.
-주문 계열 API는 사용하지 않는다.
+Prints the KIS balance plus Google Sheet data (활성감시/설정 tabs, recent trades) as markdown.
+No order-family APIs are used.
 
-사용법:
-  .venv/bin/python scripts/portfolio_snapshot.py            # 최근 매매 20건
+Usage:
+  .venv/bin/python scripts/portfolio_snapshot.py            # last 20 trades
   .venv/bin/python scripts/portfolio_snapshot.py --trades 50
 """
 import argparse

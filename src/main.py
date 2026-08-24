@@ -1,12 +1,12 @@
-"""메인 루프: 수집 → lot 갱신 → 시세 → 평가 → 발송 → 기록.
+"""Main loop: collect → update lots → prices → evaluate → send → record.
 
-python -m src.main          상시 구동 (launchd 용)
-python -m src.main --once   장 시간 무관 전체 사이클 1회 (테스트용)
+python -m src.main          run continuously (for launchd)
+python -m src.main --once   one full cycle regardless of market hours (for testing)
 
-실패 처리 원칙 (설계 9절):
-- write_lots(상태 저장)가 성공하기 전에는 어떤 것도 '처리됨'으로 기록하지 않는다
-- 거래내역/알림로그 append 실패는 로그만 남긴다 — 거래내역은 로컬 캐시로
-  다음 주기에 자동 재기록, lot 중복 반영은 캐시가 막는다
+Failure-handling principles (design doc §9):
+- Nothing is marked 'processed' before write_lots (state save) succeeds
+- Failed appends to 거래내역/알림로그 are only logged — trades are auto-rewritten
+  next cycle from the local cache, and the cache blocks duplicate lot application
 """
 import argparse
 import json
@@ -32,10 +32,10 @@ def _log(msg):
 
 
 def _write_heartbeat(status, mode=""):
-    """사이클 생존 신호 — 워치독이 나이를 검사해 무응답을 감지한다.
+    """Cycle liveness signal — the watchdog checks its age to detect hangs.
 
-    error 사이클에도 기록한다: 목적은 '루프가 돌고 있음' 증명이고,
-    2026-07-20의 6일 무음(소켓 행업)이 잡으려는 대상이다. 기록 실패는 무시.
+    Written on error cycles too: the point is to prove 'the loop is running',
+    and the 6-day silence of 2026-07-20 (socket hang) is the target. Write failures are ignored.
     """
     try:
         hb = {"ts": datetime.now(KST).isoformat(timespec="seconds"),
@@ -48,11 +48,11 @@ def _write_heartbeat(status, mode=""):
 
 
 def collect_trades(kis, sheets, cache):
-    """체결내역 수집 → 신규/수량증가를 lot과 시트에 반영.
+    """Collect executions → apply new fills/quantity increases to lots and the sheet.
 
-    순서: 판정 → lot 반영(메모리) → write_lots → 캐시 기록 → 거래내역 기록.
-    write_lots 실패 시 캐시에 남지 않아 다음 주기에 그대로 재처리되고(멱등),
-    거래내역 기록 실패분은 캐시에 남아 다음 주기에 자동 재기록된다.
+    Order: decide → apply to lots (in memory) → write_lots → record cache → write 거래내역.
+    If write_lots fails, nothing is cached, so the next cycle reprocesses as-is (idempotent);
+    rows whose 거래내역 write failed stay in the cache and are auto-rewritten next cycle.
     """
     fetched = kis.fetch_executions()
     sheet_trades = {}
@@ -71,7 +71,7 @@ def collect_trades(kis, sheets, cache):
             sheet_trades[n]["qty"] if n in sheet_trades else None)
         if old_qty is None:
             events.append({"type": "new", "trade": t})
-        elif t["qty"] > old_qty:  # 부분 체결 후 수량 증가
+        elif t["qty"] > old_qty:  # quantity grew after a partial fill
             prev_matched = (cached or {}).get("matched_lots") \
                 or sheet_trades.get(n, {}).get("matched_lots", "")
             events.append({"type": "qty_update", "trade": t,
@@ -81,7 +81,7 @@ def collect_trades(kis, sheets, cache):
     if events:
         lots = sheets.read_lots()
         annotations = lot_engine.process_trades(events, lots)
-        sheets.write_lots(lots)  # 실패 → 예외 → 캐시 미기록 → 다음 주기 재처리
+        sheets.write_lots(lots)  # failure → exception → no cache entry → reprocessed next cycle
         for ev in events:
             t = ev["trade"]
             a = annotations.get(t["order_no"], {})
@@ -108,7 +108,7 @@ def collect_trades(kis, sheets, cache):
 
 
 def watch_and_alert(kis, sheets, notifier):
-    """감시 종목 시세 조회 → lot 평가 → 알림 발송 → 상태 저장 → 로그."""
+    """Fetch prices for watched tickers → evaluate lots → send alerts → save state → log."""
     settings = sheets.read_settings()
     lots = sheets.read_lots()
     tickers = sorted({
@@ -123,7 +123,7 @@ def watch_and_alert(kis, sheets, notifier):
         try:
             prices[t] = kis.fetch_price(settings[t]["excd"], t)
         except Exception as e:
-            _log(f"시세 조회 실패 {t}: {e}")  # 실패 종목은 이번 주기 평가 스킵
+            _log(f"시세 조회 실패 {t}: {e}")  # failed tickers skip evaluation this cycle
     now = datetime.now(KST)
     alerts = lot_engine.evaluate(
         lots, prices, settings, now,
@@ -145,8 +145,8 @@ def watch_and_alert(kis, sheets, notifier):
                 "message": m["text"], "channel": channel, "result": result,
             })
         _log(f"알림 발송 {m['ticker']}: {len(m['alerts'])}건 ({result})")
-    # alert_state 저장이 로그보다 우선 — 저장 실패 시 재발송되는 쪽이 낫고,
-    # 로그 실패가 저장을 막으면 5분마다 알림이 중복 발송된다
+    # Saving alert_state comes before logging — if the save fails, re-sending is the better failure,
+    # whereas a log failure blocking the save would duplicate alerts every 5 minutes
     sheets.write_lots(lots)
     try:
         if log_rows:
@@ -156,12 +156,12 @@ def watch_and_alert(kis, sheets, notifier):
 
 
 def market_mode():
-    """(mode, 폴링 간격 초). full=전체 루프, collect=체결 수집만."""
+    """(mode, poll interval in seconds). full=whole loop, collect=execution collection only."""
     now_et = datetime.now(ET)
     weekday = now_et.weekday() < 5
     t = now_et.time()
     regular = weekday and dtime(9, 30) <= t < dtime(16, 0)
-    sweep = weekday and dtime(16, 0) <= t < dtime(16, 35)  # 마감 직후 최종 수집
+    sweep = weekday and dtime(16, 0) <= t < dtime(16, 35)  # final collection right after the close
     day_market = False
     if config.ENABLE_DAY_MARKET:
         now_kst = datetime.now(KST)
@@ -171,11 +171,11 @@ def market_mode():
         return "full", config.POLL_INTERVAL_MIN * 60
     if sweep:
         return "collect", config.POLL_INTERVAL_MIN * 60
-    return "collect", 30 * 60  # 장외: 프리/애프터 체결 대비 수집만
+    return "collect", 30 * 60  # off-hours: collect only, to catch pre/after-market fills
 
 
 def _sleep_seconds(interval):
-    """다음 장 상태 전환(개장/마감) 시각을 넘겨 자지 않도록 간격을 자른다."""
+    """Trim the interval so we never sleep past the next market transition (open/close)."""
     deltas = []
     now_et = datetime.now(ET)
     for d in (0, 1):
@@ -202,7 +202,7 @@ def run_cycle(kis, sheets, notifier, cache, full):
 
 
 def _connect_sheets_forever():
-    """부팅 직후 네트워크 미연결 등으로 실패해도 크래시 루프 대신 재시도."""
+    """Retry instead of crash-looping when e.g. the network is not up right after boot."""
     while True:
         try:
             return SheetClient(config.GOOGLE_SERVICE_ACCOUNT_JSON, config.SHEET_ID)
@@ -236,7 +236,7 @@ def main():
             run_cycle(kis, sheets, notifier, cache, full=(mode == "full"))
             _write_heartbeat("ok", mode)
         except Exception:
-            traceback.print_exc()  # 일시 오류는 다음 주기로 이월
+            traceback.print_exc()  # transient errors carry over to the next cycle
             _write_heartbeat("error", mode)
         time.sleep(_sleep_seconds(interval))
 
