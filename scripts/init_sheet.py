@@ -1,8 +1,8 @@
-"""구글시트에 4개 탭과 헤더를 생성한다 (이미 있으면 건너뜀).
+"""Create the 4 tabs and their headers in the Google Sheet (skips any that already exist).
 
-사용: .venv/bin/python scripts/init_sheet.py
-사전 조건: .env의 SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON,
-          시트를 서비스 계정 이메일에 편집자로 공유해둘 것.
+Usage: .venv/bin/python scripts/init_sheet.py
+Prerequisites: SHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON set in .env,
+          and the sheet shared with the service account email as an editor.
 """
 import sys
 from pathlib import Path

@@ -1,13 +1,13 @@
-"""Jaewon's Stock Dashboard (Streamlit) — 표시 전용 층.
+"""Jaewon's Stock Dashboard (Streamlit) — display-only layer.
 
-실행 (반드시 저장소 루트에서):
+Run (must be from the repo root):
   .venv/bin/streamlit run dashboard/app.py
-접속: http://localhost:8501
+Open: http://localhost:8501
 
-- 조회 전용: 주문 관련 기능 없음. 봇·스킬이 만든 데이터를 보여주기만 한다.
-- localhost 전용(.streamlit/config.toml): 계좌 전체가 표시되므로 외부 배포 금지.
-- 색상: 한국 관례(상승 빨강·하락 파랑) + 부호 병기(색만으로 구분하지 않음).
-- "분석 갱신" 버튼: scripts/run_checkup.sh 로 /checkup 을 헤드리스 재실행 (수 분 소요).
+- Read-only: no order features. It only displays data produced by the bot and skills.
+- localhost only (.streamlit/config.toml): the whole account is shown, so never deploy externally.
+- Colors: Korean convention (up red, down blue) + signs alongside (never color alone).
+- "분석 갱신" button: reruns /checkup headless via scripts/run_checkup.sh (takes minutes).
 """
 import html as html_mod
 import json
@@ -33,10 +33,10 @@ from src.sheet_client import SheetClient
 
 KST = ZoneInfo("Asia/Seoul")
 REPORTS = ROOT / "reports"
-UP, DOWN, FLAT = "#C0392B", "#2B6CB0", "#666B7E"  # 상승 빨강 / 하락 파랑
+UP, DOWN, FLAT = "#C0392B", "#2B6CB0", "#666B7E"  # up red / down blue (Korean convention)
 INK, MUTED, LINE = "#1A1D27", "#6A6E85", "#E7E8F0"
 
-VERDICT_PILL = {  # 상태색 + 텍스트 병기 (색 단독 구분 금지)
+VERDICT_PILL = {  # status color + text label together (never color alone)
     "계속보유": ("#1E7F4F", "#E6F4EC"),
     "축소 검토": ("#9A6700", "#FFF3DC"),
     "추가 검토": ("#2B6CB0", "#E8F0FB"),
@@ -55,7 +55,7 @@ h3 {{ letter-spacing: -.01em; }}
 """, unsafe_allow_html=True)
 
 
-# ── 데이터 로딩 (캐시로 API 호출 최소화) ─────────────────────
+# ── Data loading (caching keeps API calls to a minimum) ──────
 
 @st.cache_resource
 def kis():
@@ -86,7 +86,7 @@ def load_sheet():
 
 
 def ma_stats(closes):
-    """종가(최신순) → 이동평균 지표. 데이터 부족 항목은 None. 순수 함수."""
+    """Closes (latest first) → moving-average stats. None where data is short. Pure function."""
     def _ma(n, off=0):
         seg = closes[off:off + n]
         return sum(seg) / n if len(seg) == n else None
@@ -112,9 +112,10 @@ def ma_stats(closes):
 
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_ma(holdings_key):
-    """보유 전 종목 이동평균. 일봉 기반이라 6시간 캐시, 보유 구성이 바뀌면
-    캐시 키가 달라져 자동 재계산 (매수 시 추가·전량 매도 시 제외).
-    4스레드 병렬 수집 — 호출당 0.2s 대기가 있어 유량 한도(초당 20건) 내."""
+    """Moving averages for all holdings. Daily-bar based, so cached 6h; when the
+    holdings mix changes the cache key changes and it recomputes automatically
+    (added on buy, dropped on full sell). 4 parallel threads — the 0.2s wait
+    per call keeps it within the rate limit (20 req/s)."""
     def one(tk, pref):
         closes = []
         for excd in [pref] + [e for e in ("NAS", "NYS", "AMS") if e != pref]:
@@ -129,10 +130,10 @@ def load_ma(holdings_key):
         return dict(ex.map(lambda p: one(*p), holdings_key))
 
 
-# ── 순수 헬퍼 ────────────────────────────────────────────────
+# ── Pure helpers ─────────────────────────────────────────────
 
 def aggregate_exposure(holdings):
-    """레버리지 ETF를 기초자산으로 합산한 실질 노출."""
+    """Effective exposure with leveraged ETFs aggregated into their underlyings."""
     total = sum(h["value"] for h in holdings) or 1.0
     agg = {}
     for h in holdings:
@@ -147,8 +148,8 @@ def aggregate_exposure(holdings):
 
 
 def report_section(text, ticker):
-    """체크업 리포트에서 해당 종목 섹션만 추출."""
-    # 헤더 레벨은 리포트마다 ##/### 로 갈린다 (LLM 산출물) — 둘 다 받는다
+    """Extract just the given ticker's section from a checkup report."""
+    # Header level varies by report between ##/### (LLM output) — accept both
     m = re.search(rf"^#{{2,3}} {re.escape(ticker)}\b.*?(?=^#{{2,3}} |\Z)", text, re.M | re.S)
     return m.group(0).strip() if m else None
 
@@ -159,13 +160,13 @@ def latest_report(prefix):
 
 
 def checkup_texts():
-    """체크업 리포트 전부 (최신순) [(파일명, 내용)]."""
+    """All checkup reports (newest first) as [(filename, content)]."""
     return [(f.name, f.read_text())
             for f in sorted(REPORTS.glob("checkup-*.md"), reverse=True)]
 
 
 def latest_section(texts, ticker):
-    """종목별 가장 최근 판정 섹션 — 부분 갱신 리포트들을 병합해 찾는다."""
+    """Most recent verdict section for a ticker — found by merging partial-refresh reports."""
     for name, text in texts:
         sec = report_section(text, ticker)
         if sec:
@@ -174,7 +175,7 @@ def latest_section(texts, ticker):
 
 
 def verdict_of(section):
-    """섹션 헤더에서 '판정: X (확신도: Y)' 추출 → (판정, 확신도)."""
+    """Extract '판정: X (확신도: Y)' from the section header → (verdict, confidence)."""
     if not section:
         return None, None
     v = re.search(r"판정:\s*([^\(（\n]+)", section)
@@ -195,7 +196,7 @@ def verdict_pill(verdict, conf=None):
 
 
 def md_safe(text):
-    """리포트 마크다운 안전 렌더링: 335~384 같은 범위 표기가 취소선(~)으로 깨지는 것 방지."""
+    """Render report markdown safely: keeps range notation like 335~384 from breaking into strikethrough (~)."""
     return text.replace("~", "\\~")
 
 
@@ -209,7 +210,7 @@ HEALTH_PILL = {"우수": ("#1E7F4F", "#E6F4EC"), "양호": ("#2B6CB0", "#E8F0FB"
 
 
 def parse_checkup(text):
-    """체크업 리포트 → 판정 카드용 구조 데이터 (LLM 산출물이라 best-effort 추출)."""
+    """Checkup report → structured data for verdict cards (LLM output, so best-effort extraction)."""
     items = []
     for m in re.finditer(r"^#{2,3} ([A-Z]{2,6})\b", text, re.M):
         tk = m.group(1)
@@ -224,7 +225,7 @@ def parse_checkup(text):
                       "reason": reason.group(1).strip() if reason else "",
                       "counter": counter.group(1).strip() if counter else "",
                       "buy": buy.group(1) if buy else None})
-    # 리포트마다 헤더 레벨(#/##)이 달라서 같은 레벨의 다음 헤더 전까지 매칭
+    # Header level (#/##) varies by report, so match up to the next header of the same level
     port = re.search(r"^(#{1,2}) 포트폴리오.*?(?=^\1 |\Z)", text, re.M | re.S)
     health = re.search(r"건강도[:：]\s*\**\s*([^\n*#]+)", text)
     action = re.search(r"최우선 조치[^:：\n]*[:：]\s*\**\s*([^\n]+)", text)
@@ -281,7 +282,7 @@ def stat_row(cards):
                 + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 
-# ── 분석 갱신 (헤드리스 /checkup) 상태 ───────────────────────
+# ── "분석 갱신" (headless /checkup) run status ───────────────
 
 def checkup_status():
     lock, status = ROOT / "data/checkup_run.lock", ROOT / "data/checkup_run.status"
@@ -304,7 +305,7 @@ def checkup_status():
 
 
 def bot_heartbeat():
-    """봇 생존 신호 (data/heartbeat.json). (정보 dict, 나이 분) — 없으면 (None, None)."""
+    """Bot liveness signal (data/heartbeat.json). Returns (info dict, age in minutes) — (None, None) if absent."""
     try:
         hb = json.loads((ROOT / "data/heartbeat.json").read_text())
         ts = datetime.fromisoformat(hb["ts"])
@@ -313,7 +314,7 @@ def bot_heartbeat():
         return None, None
 
 
-# ── 사이드바 ─────────────────────────────────────────────────
+# ── Sidebar ──────────────────────────────────────────────────
 
 st.sidebar.markdown(f"<div style='font-weight:800;font-size:1.15rem;color:{INK}'>"
                     "📈 Stock Dashboard</div>", unsafe_allow_html=True)
@@ -322,13 +323,13 @@ st.sidebar.caption("조회 전용 · localhost")
 _hb, _hb_age = bot_heartbeat()
 if _hb is None:
     st.sidebar.warning("봇 상태 미확인 — 하트비트 없음")
-elif _hb_age > 90:  # 워치독 STALE_SEC와 동일 기준
+elif _hb_age > 90:  # same threshold as the watchdog's STALE_SEC
     st.sidebar.error(f"봇 정지 의심 — 마지막 동작 {_hb_age / 60:.1f}시간 전")
 else:
     st.sidebar.caption(f"봇 동작 중 · 마지막 사이클 {_hb_age:.0f}분 전")
 
 if st.sidebar.button("데이터 새로고침", width="stretch"):
-    load_holdings.clear()   # 이동평균(일봉)은 6시간 캐시 유지 — 시세·시트만 갱신
+    load_holdings.clear()   # keep the 6h MA (daily-bar) cache — refresh only quotes and sheet data
     load_sheet.clear()
     st.rerun()
 
@@ -364,7 +365,7 @@ st.sidebar.caption(f"최근 판정 리포트: {checkup_file.name if checkup_file
 st.sidebar.caption(f"갱신: {datetime.now(KST).strftime('%m-%d %H:%M:%S')} KST")
 
 
-# ── 데이터 준비 ──────────────────────────────────────────────
+# ── Data preparation ─────────────────────────────────────────
 
 try:
     holdings = load_holdings()
@@ -380,10 +381,10 @@ except Exception as e:
 total_value = sum(h["value"] for h in holdings)
 total_cost = sum(h["avg"] * h["qty"] for h in holdings)
 total_pnl = (total_value / total_cost - 1) * 100 if total_cost else 0.0
-checkup_docs = checkup_texts()  # 종목별 최신 판정을 리포트들에서 병합
+checkup_docs = checkup_texts()  # merge the latest per-ticker verdicts across reports
 
 
-# ── 헤더 ─────────────────────────────────────────────────────
+# ── Header ───────────────────────────────────────────────────
 
 st.markdown(f"""
 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -396,7 +397,7 @@ st.markdown(f"""
 tab_pf, tab_detail, tab_report, tab_div = st.tabs(["포트폴리오", "종목 상세", "리포트", "배당"])
 
 
-# ── 탭 1: 포트폴리오 ────────────────────────────────────────
+# ── Tab 1: Portfolio ─────────────────────────────────────────
 
 with tab_pf:
     watch_n = sum(1 for s in sheet["settings"].values() if s.get("enabled"))
@@ -505,7 +506,7 @@ with tab_pf:
             st.caption("설정 없음")
 
 
-# ── 탭 2: 종목 상세 ─────────────────────────────────────────
+# ── Tab 2: Ticker detail ─────────────────────────────────────
 
 with tab_detail:
     tickers = [h["ticker"] for h in holdings]
@@ -599,7 +600,7 @@ with tab_detail:
         st.caption("시트 기록 없음 (봇 가동 이후 체결만 기록됨)")
 
 
-# ── 탭 3: 리포트 ────────────────────────────────────────────
+# ── Tab 3: Reports ───────────────────────────────────────────
 
 with tab_report:
     files = sorted(REPORTS.glob("*.md"), reverse=True)
@@ -647,7 +648,7 @@ with tab_report:
             st.markdown(md_safe(text))
 
 
-# ── 배당 탭 ──────────────────────────────────────────────────
+# ── Dividends tab ────────────────────────────────────────────
 
 with tab_div:
     st.subheader("배당락일 타임라인")

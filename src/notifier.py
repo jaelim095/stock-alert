@@ -1,8 +1,8 @@
-"""알림 발송: 카카오톡 나에게 보내기 + Gmail 병행 (docs/02-design.md 6절).
+"""Alert delivery: KakaoTalk send-to-self plus Gmail (docs/02-design.md §6).
 
-카카오 access token 12시간 / refresh token 60일 —
-갱신 응답에 새 refresh_token이 오면 반드시 파일에 교체 저장해야
-재로그인 없이 계속 돌 수 있다.
+Kakao access token lasts 12 hours / refresh token 60 days —
+when a refresh response carries a new refresh_token, it must be saved back
+to the file, or the bot cannot keep running without a re-login.
 """
 import json
 import smtplib
@@ -16,8 +16,8 @@ from . import config
 
 KAKAO_SEND_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
-KAKAO_TEXT_LIMIT = 200  # 텍스트 템플릿 글자수 제한 — 전문은 이메일로
-WARN_THROTTLE_SEC = 6 * 3600  # 재로그인 경고 이메일 최소 간격
+KAKAO_TEXT_LIMIT = 200  # text template length limit — full text goes by email
+WARN_THROTTLE_SEC = 6 * 3600  # minimum interval between re-login warning emails
 
 
 class Notifier:
@@ -25,10 +25,10 @@ class Notifier:
         self.tokens_path = Path(config.KAKAO_TOKENS_PATH)
 
     def send(self, subject, text):
-        """알림 발송. 반환: {"kakao": 결과, "email": 결과}
+        """Send an alert. Returns: {"kakao": result, "email": result}
 
-        이메일은 ALERT_EMAIL_MODE에 따라: always=항상 병행,
-        fallback=카톡 실패 시에만(무음 단절 방지), off=안 보냄.
+        Email follows ALERT_EMAIL_MODE: always=always alongside,
+        fallback=only when KakaoTalk fails (prevents silent gaps), off=never.
         """
         res = {"kakao": self._send_kakao(text)}
         mode = config.ALERT_EMAIL_MODE
@@ -53,20 +53,20 @@ class Notifier:
             "client_id": config.KAKAO_REST_API_KEY,
             "refresh_token": tok["refresh_token"],
         }
-        if config.KAKAO_CLIENT_SECRET:  # 앱에 Client Secret이 켜져 있으면 필수
+        if config.KAKAO_CLIENT_SECRET:  # required when the app has Client Secret enabled
             payload["client_secret"] = config.KAKAO_CLIENT_SECRET
         r = requests.post(KAKAO_TOKEN_URL, data=payload, timeout=10)
         r.raise_for_status()
         d = r.json()
         tok["access_token"] = d["access_token"]
         tok["expires_at"] = time.time() + int(d.get("expires_in", 21600))
-        if d.get("refresh_token"):  # 만료 1개월 미만일 때만 새로 옴 — 교체 저장 필수
+        if d.get("refresh_token"):  # only sent when expiry is under a month away — must be saved back
             tok["refresh_token"] = d["refresh_token"]
         self.tokens_path.write_text(json.dumps(tok, ensure_ascii=False))
         return tok["access_token"]
 
     def _warn_relogin(self, err):
-        """재로그인 경고 이메일 — 알림 건마다 반복되지 않게 6시간 스로틀."""
+        """Re-login warning email — throttled to 6 hours so it does not repeat for every alert."""
         marker = self.tokens_path.with_name("kakao_warn_last.txt")
         try:
             last = float(marker.read_text())
@@ -90,7 +90,7 @@ class Notifier:
             return "미설정"
         try:
             token = self._kakao_access_token()
-        except Exception as e:  # 토큰 갱신 실패 → 이메일로 경고 후 이메일 단독 운행
+        except Exception as e:  # token refresh failed → warn by email, then run email-only
             self._warn_relogin(e)
             return f"실패(토큰): {e}"
         template = {

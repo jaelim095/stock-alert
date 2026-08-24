@@ -1,7 +1,7 @@
-"""한국투자증권 오픈API 클라이언트 — 조회 전용. 주문 계열 API는 두지 않는다.
+"""Korea Investment & Securities open API client — read-only. No order-family APIs here.
 
-응답 필드명은 공식 examples_llm 기준으로 작성했으며 실계좌 실측으로 보정이
-필요할 수 있다 (CLAUDE.md 현재 상태 참고).
+Response field names were written from the official examples_llm and may need
+correction against live-account measurements (see CLAUDE.md current status).
 """
 import json
 import time
@@ -43,7 +43,7 @@ class KISClient:
         self.base = BASE_URL[env]
         self.token_path = Path(token_path)
 
-    # 토큰 24시간 유효 / 재발급 1분당 1회 제한 → 파일 캐싱, 만료 10분 전에만 갱신
+    # Token valid 24h / reissue capped at once per minute → file cache, refresh only within 10 min of expiry
     def _token(self):
         tok = {}
         if self.token_path.exists():
@@ -82,7 +82,7 @@ class KISClient:
         if tr_cont:
             headers["tr_cont"] = tr_cont
         r = requests.get(self.base + path, headers=headers, params=params, timeout=10)
-        time.sleep(0.2)  # 유량 제한(실전 초당 20건) 여유
+        time.sleep(0.2)  # headroom for the rate limit (20 req/s on live)
         r.raise_for_status()
         d = r.json()
         if str(d.get("rt_cd")) != "0":
@@ -90,10 +90,10 @@ class KISClient:
         return r, d
 
     def fetch_executions(self, start=None, end=None):
-        """체결내역 → 내부 키 trade dict 목록. 기본은 미국 현지 [어제, 오늘].
+        """Executions → list of trade dicts with internal keys. Default: US-local [yesterday, today].
 
-        날짜 경계 문제를 피하려고 기본 2일 범위로 조회하고 주문번호로 dedupe 한다
-        (dedupe는 호출자 몫). start/end는 date — 백필 스크립트가 과거 구간을 넘긴다.
+        Queries a 2-day range by default to avoid date-boundary issues, then dedupes
+        by order number (the caller's job). start/end are dates — the backfill script passes past ranges.
         """
         today = datetime.now(US_EASTERN).date()
         end_d = end or today
@@ -104,9 +104,9 @@ class KISClient:
             "PDNO": "",
             "ORD_STRT_DT": start_d.strftime("%Y%m%d"),
             "ORD_END_DT": end_d.strftime("%Y%m%d"),
-            "SLL_BUY_DVSN": "00",       # 전체
-            "CCLD_NCCS_DVSN": "01",     # 체결만
-            "OVRS_EXCG_CD": "NASD",     # 미국 전체(나스닥+뉴욕+아멕스)
+            "SLL_BUY_DVSN": "00",       # all
+            "CCLD_NCCS_DVSN": "01",     # filled only
+            "OVRS_EXCG_CD": "NASD",     # all US (NASDAQ+NYSE+AMEX)
             "SORT_SQN": "DS",
             "ORD_DT": "",
             "ORD_GNO_BRNO": "",
@@ -129,8 +129,8 @@ class KISClient:
                     "trade_date": _fmt_date(row.get("ord_dt", "")),
                     "ticker": str(row.get("pdno", "")).upper(),
                     "name": row.get("prdt_name", ""),
-                    # 실측 확인(2026-07): sll_buy_dvsn_cd 01=매도, 02=매수.
-                    # 이름 필드를 우선 신뢰하고 코드는 폴백.
+                    # Verified live (2026-07): sll_buy_dvsn_cd 01=sell, 02=buy.
+                    # Trust the name field first; the code is the fallback.
                     "side": "매도" if "매도" in str(row.get("sll_buy_dvsn_cd_name") or "")
                             or str(row.get("sll_buy_dvsn_cd")) == "01" else "매수",
                     "price": price,
@@ -141,7 +141,7 @@ class KISClient:
                     "note": "",
                 })
             cont = (r.headers.get("tr_cont") or "").strip()
-            if cont in ("F", "M"):  # 연속조회
+            if cont in ("F", "M"):  # continuation fetch
                 params["CTX_AREA_FK200"] = d.get("ctx_area_fk200", "")
                 params["CTX_AREA_NK200"] = d.get("ctx_area_nk200", "")
                 tr_cont = "N"
@@ -150,7 +150,7 @@ class KISClient:
         return out
 
     def fetch_price(self, excd, symb):
-        """해외주식 현재체결가. 무료 시세 서버가 간헐 500을 내므로 1회 재시도."""
+        """Current overseas stock price. The free quote server throws intermittent 500s, so retry once."""
         for attempt in (1, 2):
             try:
                 _, d = self._get("/uapi/overseas-price/v1/quotations/price", TR_PRICE,
@@ -162,7 +162,7 @@ class KISClient:
                 time.sleep(2)
 
     def fetch_holdings(self):
-        """미국 보유 종목 잔고 (조회 전용). 평가액 내림차순."""
+        """US holdings balance (read-only). Sorted by valuation, descending."""
         params = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt,
                   "OVRS_EXCG_CD": "NASD", "TR_CRCY_CD": "USD",
                   "CTX_AREA_FK200": "", "CTX_AREA_NK200": ""}
@@ -186,7 +186,7 @@ class KISClient:
         return sorted(out, key=lambda x: -x["value"])
 
     def fetch_daily_closes(self, excd, symb, need=130):
-        """일봉 종가 목록(최신순). 이동평균 계산용. 100건 초과는 BYMD 페이지네이션."""
+        """Daily closing prices (newest first). For moving averages. Beyond 100 rows, paginate via BYMD."""
         closes = {}
         bymd = ""
         for _ in range(4):

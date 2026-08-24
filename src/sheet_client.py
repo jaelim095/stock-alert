@@ -1,9 +1,9 @@
-"""구글시트 연동 (gspread + 서비스 계정). 탭·헤더는 docs/02-design.md 4절 기준.
+"""Google Sheets integration (gspread + service account). Tabs/headers follow docs/02-design.md §4.
 
-시트가 source of truth — 매 주기 전체를 다시 읽고, lot 탭은 통째로 다시 쓴다.
-- 모든 쓰기는 RAW: 주문번호 선행 0, 날짜 문자열이 시트에서 변형되지 않게
-- 열 위치는 1행 헤더를 실제로 읽어 매핑: 사용자가 열을 옮기거나 추가해도 안전
-- 모든 호출 1회 재시도(2초 대기) — 설계 9절
+The sheet is the source of truth — reread everything each cycle; the lot tab is rewritten whole.
+- All writes are RAW: so leading zeros in order numbers and date strings survive the sheet
+- Column positions are mapped by actually reading the row-1 headers: safe even if the user moves or adds columns
+- Every call retried once (2s wait) — design doc §9
 """
 import json
 import time
@@ -76,7 +76,7 @@ def _i(v, default=0):
 class SheetClient:
     def __init__(self, sa_json_path, sheet_id):
         self.gc = gspread.service_account(filename=sa_json_path)
-        # 타임아웃 없으면 소켓이 매달릴 때 루프가 영원히 멈춘다 (2026-07-20 실제 6일 정지)
+        # Without a timeout, a hung socket stalls the loop forever (actually stopped 6 days on 2026-07-20)
         self.gc.set_timeout((10, 30))
         self.doc = _retry(self.gc.open_by_key, sheet_id)
 
@@ -84,7 +84,7 @@ class SheetClient:
         return _retry(self.doc.worksheet, tab)
 
     def _read(self, tab, cols):
-        """(values, keys) — values[0]=실제 헤더, keys[i]=i열의 내부 키(모르는 헤더는 None)."""
+        """(values, keys) — values[0]=actual header, keys[i]=internal key of column i (None for unknown headers)."""
         values = _retry(self._ws(tab).get_all_values)
         if not values or not any(h.strip() for h in values[0]):
             raise ValueError(f"'{tab}' 탭에 헤더가 없습니다 — scripts/init_sheet.py 실행 필요")
@@ -112,7 +112,7 @@ class SheetClient:
                 elif values[0][i].strip():
                     extra[values[0][i].strip()] = cell
             if extra:
-                row["_extra"] = extra  # 사용자 추가 열 보존용
+                row["_extra"] = extra  # preserves user-added columns
             rows.append(row)
         return rows
 
@@ -121,7 +121,7 @@ class SheetClient:
         rows = [[("" if k is None else d.get(k, "")) for k in keys] for d in dicts]
         _retry(self._ws(tab).append_rows, rows, value_input_option="RAW")
 
-    # ── 거래내역 ──────────────────────────────────────────
+    # ── 거래내역 (trade log) ──────────────────────────────────────────
 
     def read_trades(self):
         rows = self._rows(TAB_TRADES, TRADE_COLS)
@@ -135,7 +135,7 @@ class SheetClient:
         self._append(TAB_TRADES, TRADE_COLS, trades)
 
     def update_trade(self, order_no, qty, amount, matched_lots=None, note=None):
-        """부분 체결 반영: 주문번호(정규화 비교)로 행을 찾아 수량·금액·매칭 갱신."""
+        """Apply a partial fill: find the row by order number (normalized comparison) and update qty, amount, matches."""
         values, keys = self._read(TAB_TRADES, TRADE_COLS)
         oc = keys.index("order_no")
         target = norm_order_no(order_no)
@@ -156,7 +156,7 @@ class SheetClient:
         _retry(self._ws(TAB_TRADES).batch_update, data, value_input_option="RAW")
         return True
 
-    # ── 활성감시 (lot) ────────────────────────────────────
+    # ── 활성감시 (active lots) ────────────────────────────────────
 
     def read_lots(self):
         rows = self._rows(TAB_LOTS, LOT_COLS)
@@ -172,11 +172,11 @@ class SheetClient:
         return rows
 
     def write_lots(self, lots):
-        """활성감시 탭 전체 재작성 — clear 없이 단일 update 호출.
+        """Rewrite the whole 활성감시 tab — a single update call, no clear.
 
-        clear 후 update의 2단계는 중간 실패 시 유일한 상태 저장소가 통째로
-        비는 사고가 나므로 금지. 이전 데이터가 더 길었던 만큼 빈 행을 같은
-        페이로드에 포함해 한 번에 덮는다.
+        Two-phase clear-then-update is forbidden: a mid-way failure would leave
+        the only state store completely empty. Where previous data was longer,
+        blank rows are included in the same payload to overwrite in one shot.
         """
         values, keys = self._read(TAB_LOTS, LOT_COLS)
         header = values[0]
@@ -192,7 +192,7 @@ class SheetClient:
         _retry(self._ws(TAB_LOTS).update,
                values=rows, range_name="A1", value_input_option="RAW")
 
-    # ── 알림로그 / 설정 ───────────────────────────────────
+    # ── 알림로그 / 설정 (alert log / settings) ───────────────────────────────────
 
     def append_alerts(self, alerts):
         self._append(TAB_ALERTS, ALERT_COLS, alerts)
@@ -215,10 +215,10 @@ class SheetClient:
             }
         return out
 
-    # ── 투자논리 ─────────────────────────────────────────
+    # ── 투자논리 (investment theses) ─────────────────────────────────────────
 
     def read_thesis(self):
-        """투자논리 행 목록. 탭이 아직 없으면 빈 목록 (init_sheet 전 호환)."""
+        """List of 투자논리 rows. Empty list if the tab does not exist yet (pre-init_sheet compat)."""
         try:
             return self._rows(TAB_THESIS, THESIS_COLS)
         except gspread.exceptions.WorksheetNotFound:
@@ -228,7 +228,7 @@ class SheetClient:
         self._append(TAB_THESIS, THESIS_COLS, rows)
 
     def update_thesis_checked(self, ticker, date_str):
-        """해당 종목 행의 최근점검일 갱신. 행이 없으면 False."""
+        """Update the ticker row's 최근점검일. False if the row is missing."""
         values, keys = self._read(TAB_THESIS, THESIS_COLS)
         tc = keys.index("ticker")
         for i, raw in enumerate(values[1:], start=2):

@@ -1,64 +1,79 @@
-# stock-alert — 미국주식 매매기록·알림 봇 (개인 프로젝트)
+# stock-alert — US-stock trade-logging & alert bot (personal project)
 
-한국투자증권 계좌의 미국주식 체결을 자동으로 구글시트에 기록하고,
-매수/매도 건별(lot)로 ±10% 조건 알림(카카오톡+이메일)을 보내는 봇.
-2026-07-15 사전조사 → 07-16 설계 확정·뼈대 생성. 이 CLAUDE.md가 세션 간 컨텍스트 인수인계 문서다.
+Automatically records US-stock executions from a Korea Investment & Securities
+(KIS) account into Google Sheets and sends per-lot ±10% condition alerts
+(KakaoTalk + email). Research 2026-07-15 → design finalized and skeleton built
+07-16. This CLAUDE.md is the session-to-session handover document.
 
-## 기능 구조 (3층)
+## Architecture (4 layers)
 
-1. 기계 층 (src/, 봇): 체결 자동 기록 + lot 단위 ±10% 알림. 결정론적, LLM 없음
-2. 판단 보조 층 (스킬 4종, 요청 시에만 실행): `/checkup`(보유 종목 4렌즈 점검+포트 진단),
-   `/earnings`(실적 원문 정독→투자논리 가정 판정), `/dividends`(배당락일 타임라인→대시보드 배당 탭), `/research`(신규 종목 심층 리서치→
-   포트 적합성 평가→투자논리 초안). 리포트는 `reports/`(git 제외),
-   데이터는 `scripts/portfolio_snapshot.py`(조회 전용)로 주입. 공통 규칙: 결론 강제,
-   반대 논거 의무, 타이밍·목표가 예측 금지. 사실 수집·반론은 공용 서브에이전트가 담당
-   (`.claude/agents/`: fact-researcher=A/B/C 정보등급·2출처 검증 내장, skeptic=판정 반박.
-   2026-07-25 도입 — 세 스킬 공통 적용)
-3. 결정 층: 사람. 주문은 항상 사용자가 직접
-4. 표시 층 (`dashboard/app.py`, Streamlit): 위 층들이 만든 데이터를 보여주는 로컬 웹.
-   실행 `.venv/bin/streamlit run dashboard/app.py` (저장소 루트에서) → http://localhost:8501
-   localhost 전용(.streamlit/config.toml) — 계좌 정보 표시되므로 외부 배포 금지
+1. Machine layer (src/, the bot): auto trade logging + per-lot ±10% alerts. Deterministic, no LLM
+2. Judgment-support layer (4 skills, run on request only): `/checkup` (4-lens review of
+   holdings + portfolio diagnosis), `/earnings` (close-read earnings → judge thesis
+   assumptions), `/dividends` (ex-dividend timeline → dashboard dividend tab),
+   `/research` (deep-dive on a prospective ticker → portfolio fit → thesis draft).
+   Reports go to `reports/` (git-ignored); data is injected via
+   `scripts/portfolio_snapshot.py` (read-only). Shared rules: forced verdicts,
+   mandatory counter-argument, no timing/price-target predictions. Fact-gathering and
+   rebuttal are handled by shared subagents (`.claude/agents/`: fact-researcher =
+   A/B/C source grading + dual-source verification built in, skeptic = attacks draft
+   verdicts. Introduced 2026-07-25 — applied across all skills)
+3. Decision layer: the human. Orders are always placed by the user, manually
+4. Display layer (`dashboard/app.py`, Streamlit): local web UI over the layers above.
+   Run `.venv/bin/streamlit run dashboard/app.py` (from repo root) → http://localhost:8501
+   localhost-only (.streamlit/config.toml) — shows the whole account, never deploy externally
 
-## 필독 문서
+## Required reading
 
-- `docs/02-design.md` — 확정 설계(시트 스키마·lot 상태머신·KIS API 사용법). 구현의 기준.
-- `docs/01-research.md` — 사전조사 결과(KIS API TR ID·알림채널·라이브러리 비교, 출처·신뢰도 포함)
-- `docs/03-setup-guide.md` — 사용자가 직접 해야 할 사전 준비(한투 앱키·카카오·GCP·launchd)
+- `docs/02-design.md` — finalized design (sheet schema · lot state machine · KIS API usage). The implementation baseline.
+- `docs/01-research.md` — prior research (KIS API TR IDs, alert channels, library comparison, with sources/reliability)
+- `docs/03-setup-guide.md` — manual prep the user must do (KIS app keys, Kakao, GCP, launchd)
 
-## 확정 결정 (2026-07-16, 사용자 확인 완료)
+## Locked decisions (2026-07-16, user-confirmed)
 
-- 대상: 미국 주식만
-- 실행: 사용자 맥 상시 구동 (launchd, `deploy/com.jaewon.stock-alert.plist`)
-- 구글시트가 source of truth — 사용자가 시트를 직접 수정하면 봇이 그대로 따른다
-- 매도-lot 매칭: 수량 정확 일치 우선(최신순) → 없으면 LIFO 분할
-- 알림 반복: 조건별 1회 + 미해소 시 24시간마다 리마인드 + 하락은 -10/-20/-30% 계단식
-- 알림 채널: 카카오톡 메인, 이메일은 fallback(카톡 실패 시에만 — `.env ALERT_EMAIL_MODE`, 2026-07-18 변경). 카카오 토큰 실패 경고 이메일은 항상 발송
+- Scope: US stocks only
+- Runtime: always-on on the user's Mac (launchd, `deploy/com.jaewon.stock-alert.plist`)
+- Google Sheets is the source of truth — if the user edits the sheet directly, the bot follows
+- Sell-lot matching: exact quantity match first (newest), else LIFO split
+- Alert cadence: once per condition + 24h reminder while unresolved + stepped -10/-20/-30% on drops
+- Channels: KakaoTalk primary, email as fallback (only when Kakao fails — `.env ALERT_EMAIL_MODE`,
+  changed 2026-07-18). Kakao-token-failure warning emails are always sent
 
-## 저장소
+## Repository
 
-- GitHub: https://github.com/jaelim095/stock-alert (private, 기본 브랜치 main)
-- 커밋 신원은 이 저장소 전용 설정(`Jaewon <jaelim095@gmail.com>`). 전역 git 설정은 건드리지 않았다.
-- 커밋 메시지는 영어로 작성한다 (2026-07-20 사용자 지시. 이전 한국어 커밋은 그대로 둠).
+- GitHub: https://github.com/jaelim095/stock-alert (public since 2026-08-24, default branch main)
+- Commit identity is repo-local (`Jaewon <jaelim095@gmail.com>`). Global git config untouched.
+- Commit messages are written in English (user directive 2026-07-20; earlier Korean commits left as-is).
 
-## 안전 규칙 (절대 준수)
+## Safety rules (absolute)
 
-- 한투 주문/정정/취소 API는 어떤 이유로도 구현·호출하지 않는다. 이 프로젝트는 조회 전용이다.
-- `.env`, `secrets/`, `data/`, `logs/`, `.omc/`는 커밋 금지 (.gitignore 처리됨). 앱키·토큰을 코드나 문서에 적지 않는다.
-- 커밋 전 `git status`로 비밀 파일이 섞이지 않았는지 확인한다. private 저장소라도 키가 올라가면 히스토리에 남는다.
-- 추가 안전망: PreToolUse 훅(`.claude/hooks/check-secrets.sh`)이 git commit 시 스테이징에서 비밀 패턴·금지 경로를 검사해 차단한다 (2026-07-25). 훅이 차단하면 우회하지 말고 원인을 해결한다.
-- 실계좌 연결 전에 모의투자(`KIS_ENV=vps`)로 먼저 검증한다.
+- Never implement or call KIS order/amend/cancel APIs for any reason. This project is read-only.
+- Never commit `.env`, `secrets/`, `data/`, `logs/`, `.omc/` (gitignored). Never put app keys or tokens in code or docs.
+- Run `git status` before committing to check no secret files slipped in. Even in a private repo, a pushed key lives in history forever.
+- Extra nets: a PreToolUse hook (`.claude/hooks/check-secrets.sh`) scans staged changes on git commit
+  for secret patterns and banned paths and blocks the commit (2026-07-25); another hook
+  (`.claude/hooks/block-order-api.sh`) blocks any Write/Edit/Bash containing order-API patterns
+  (2026-08-24). If a hook blocks you, fix the cause — never bypass it.
+- Verify against the paper-trading env (`KIS_ENV=vps`) before touching the real account.
 
-## 현재 상태 (2026-07-18 기준: 실운영 중)
+## Current state (as of 2026-07-18: live in production)
 
-- 완료: 설계 문서, 셋업 가이드, 코드(src/), 유닛테스트 21개, 다중 에이전트 리뷰 결함 17건 수정
-- 완료: 실전(prod) API 검증 — 토큰·시세·체결내역·잔고 전부 실측 확인. 매수매도 매핑 실측 확정(01=매도, 02=매수, 이름 필드 우선)
-- 완료: 구글시트 "매매 기록" 연결·탭 4개 생성, 감시 종목 IRE/TSLL/METU seed(평단 기준), Gmail+카카오톡 발송 검증
-- 완료: launchd 상시 구동 (caffeinate 잠자기 방지 포함). 실제 체결(IRE 매수)이 5분 내 시트 반영되고 알림 발송되는 것까지 확인
-- 카카오: REST 키+Client Secret 사용, talk_message 동의 완료, data/kakao_tokens.json (refresh 60일, 봇 자동 갱신). 2개월 이상 봇 중단 시 재로그인 필요(가이드 2절 8~11번)
-- 감시망(2026-07-30): 봇이 매 사이클 `data/heartbeat.json` 기록 → launchd 워치독(`com.jaewon.stock-alert-watchdog`, 15분)이 90분 무응답 시 자동 재시작+이메일. 하루 1회 잔고-lot 정합성 검사(`scripts/reconcile.py`, 위반 시 이메일). 배경: 07-20 gspread 소켓 행업으로 6일 무음 사고
-- 운영 명령·주의사항: 프로젝트 메모리(project-status.md) 참고. 감시 종목 변경은 시트 설정 탭에서
+- Done: design docs, setup guide, code (src/), 21 unit tests, 17 defects fixed from multi-agent review
+- Done: production API verification — token/quotes/executions/balance all confirmed live.
+  Buy/sell mapping confirmed empirically (01=sell, 02=buy, name field takes priority)
+- Done: Google Sheet "매매 기록" connected with 4 tabs, watch tickers IRE/TSLL/METU seeded
+  (at average cost), Gmail + KakaoTalk delivery verified
+- Done: launchd always-on (with caffeinate sleep prevention). Verified end-to-end: a real
+  execution (IRE buy) hit the sheet within the 5-minute cycle and alerts fired
+- Kakao: REST key + Client Secret, talk_message consent done, data/kakao_tokens.json
+  (refresh 60 days, bot auto-renews). If the bot is down for 2+ months, re-login is needed (guide §2, steps 8–11)
+- Watchdog net (2026-07-30): the bot writes `data/heartbeat.json` every cycle → a launchd
+  watchdog (`com.jaewon.stock-alert-watchdog`, 15 min) auto-restarts + emails after 90 min of
+  silence. Daily balance-vs-lot reconciliation (`scripts/reconcile.py`, emails on violations).
+  Background: the 07-20 gspread socket hang caused 6 silent days
+- Ops commands & cautions: see project memory (project-status.md). Watch-ticker changes go in the sheet's 설정 tab
 
-## 사용자 참고
+## About the user
 
-- 사용자는 데이터 엔지니어. 간단한 설명 선호, 답변은 한국어.
-- 볼드 남용 금지, 이모지 최소화, 짧은 문장 위주.
+- The user is a data engineer. Prefers concise explanations; respond in Korean.
+- Avoid bold overuse, minimal emoji, short sentences.

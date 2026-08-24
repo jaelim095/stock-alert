@@ -5,7 +5,7 @@
     <key>Label</key>
     <string>com.jaewon.stock-alert-watchdog</string>
 
-    <!-- 15분마다 봇 하트비트 검사 → 무응답 시 자동 재시작 + 이메일. 하루 1회 정합성 검사 -->
+    <!-- Checks the bot heartbeat every 15 min → auto-restart + email on no response. Runs the consistency check once a day -->
     <key>ProgramArguments</key>
     <array>
         <string>/Users/jaewon/stock-alert/.venv/bin/python</string>

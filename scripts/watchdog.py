@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""봇 하트비트 감시 — launchd가 15분마다 실행 (com.jaewon.stock-alert-watchdog).
+"""Bot heartbeat watchdog — run by launchd every 15 minutes (com.jaewon.stock-alert-watchdog).
 
-1) data/heartbeat.json 이 STALE_SEC 이상 묵으면: 봇 자동 재시작 + 이메일 경고
-   (경고는 6시간 스로틀 — 재시작 자체는 매번 시도)
-2) 하루 1회 잔고-lot 정합성 검사(scripts/reconcile.py) — 위반 시 이메일
+1) If data/heartbeat.json is older than STALE_SEC: auto-restart the bot + email warning
+   (the warning is throttled to 6 hours — the restart itself is attempted every time)
+2) Once a day, run the balance-lot consistency check (scripts/reconcile.py) — email on violation
 
-결정론적·조회 전용. 실패는 다음 주기에 자연 재시도된다.
-사용: watchdog.py [--dry-run]   (dry-run: 감지만 하고 재시작·이메일 생략)
+Deterministic, read-only. Failures retry naturally on the next cycle.
+Usage: watchdog.py [--dry-run]   (dry-run: detect only, skip restart/email)
 """
 import json
 import os
@@ -26,7 +26,7 @@ from src.notifier import Notifier  # noqa: E402
 
 KST = ZoneInfo("Asia/Seoul")
 BOT_LABEL = "com.jaewon.stock-alert"
-STALE_SEC = 90 * 60  # 봇 최장 사이클(장외 30분)의 3배
+STALE_SEC = 90 * 60  # 3x the bot's longest cycle (30 min off-hours)
 WARN_THROTTLE_SEC = 6 * 3600
 
 
@@ -35,7 +35,7 @@ def _log(msg):
 
 
 def _heartbeat_age():
-    """하트비트 나이(초). 파일 없음/손상이면 None."""
+    """Heartbeat age in seconds. None if the file is missing or corrupt."""
     try:
         hb = json.loads(Path(config.HEARTBEAT_PATH).read_text())
         ts = datetime.fromisoformat(hb["ts"])
@@ -45,7 +45,7 @@ def _heartbeat_age():
 
 
 def _throttled(name, limit):
-    """마커 파일 기반 스로틀. True면 아직 조용히 있을 시간."""
+    """Marker-file based throttle. True means it is still quiet time."""
     marker = ROOT / "data" / name
     try:
         last = float(marker.read_text())
@@ -75,7 +75,7 @@ def check_heartbeat(dry):
     _log(f"봇 무응답 감지({desc}) → 자동 재시작 {restarted}")
     if _throttled("watchdog_warn_last.txt", WARN_THROTTLE_SEC):
         return
-    # 봇이 죽었을 때 카톡(봇 경유)도 같이 죽었을 수 있으므로 이메일로 직접 발송
+    # When the bot is dead, KakaoTalk (routed through the bot) may be down too, so send email directly
     Notifier()._send_email(
         "[stock-alert] 봇 무응답 감지 — 자동 재시작",
         f"{desc}\n자동 재시작: {restarted}\n"
@@ -98,7 +98,7 @@ def daily_reconcile(dry):
         capture_output=True, text=True, timeout=180)
     first = r.stdout.strip().splitlines()[0] if r.stdout.strip() else ""
     _log(f"정합성 검사 exit={r.returncode}" + (f" — {first}" if first else ""))
-    if r.returncode in (0, 1):  # 2(실행 오류)는 마킹 없이 다음 주기 재시도
+    if r.returncode in (0, 1):  # 2 (runtime error) leaves no marker, so the next cycle retries
         try:
             marker.write_text(today)
         except OSError:

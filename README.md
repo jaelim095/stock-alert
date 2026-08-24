@@ -1,64 +1,69 @@
 # stock-alert
 
-한국투자증권 계좌의 미국주식 체결을 구글시트에 자동 기록하고,
-매수/매도 건별(lot)로 ±10% 조건 알림(카카오톡·이메일)을 보내는 개인용 봇.
+A personal bot that automatically records US-stock executions from a
+Korea Investment & Securities (KIS) account into Google Sheets, and sends
+per-purchase-lot ±10% alerts via KakaoTalk (with email fallback).
 
-## 동작 요약
+## How it works
 
-- 5분마다 한투 오픈API로 체결내역을 조회해 시트 `거래내역` 탭에 기록 (전 종목)
-- 감시 종목(`설정` 탭)의 매수 건이 기준가 대비 -10% → 추가매수 알림, +10% → 매도 알림
-- 매도 후 매도가 대비 -10% → 재매수 알림
-- 조회 전용: 주문 API는 사용하지 않으므로 봇이 매매할 위험이 없음
+- Polls the KIS open API every 5 minutes during US market hours and records
+  new executions into the 거래내역 (trade log) tab — all tickers
+- For watched tickers (설정 tab): a buy lot down 10% from its base price →
+  buy-more alert; up 10% → sell alert
+- After a sell: price dropping 10% below the sell price → re-entry alert
+- Read-only: order APIs are never used, so the bot cannot place trades
 
-체결 자동 기록 데모 — 폰에서 매수하면 봇이 5분 내 시트에 기록:
+Auto-recording demo — buy on the phone, the bot logs it to the sheet within minutes:
 
-![체결 자동 기록 데모](docs/images/demo-auto-record.gif)
+![Auto-recording demo](docs/images/demo-auto-record.gif)
 
-## 시작하기
+## Getting started
 
-1. `docs/03-setup-guide.md` 따라 한투 앱키·카카오·구글 서비스계정 준비, `.env` 작성
+1. Follow `docs/03-setup-guide.md` to prepare KIS app keys, Kakao, and a
+   Google service account, then write `.env`
 2. `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`
-3. `python scripts/init_sheet.py` — 시트 탭/헤더 생성
-4. `python -m src.main --once` — 1회 실행 테스트
-5. launchd 등록(가이드 8절)으로 상시 구동
+3. `python scripts/init_sheet.py` — creates the sheet tabs/headers
+4. `python -m src.main --once` — single test cycle
+5. Register with launchd (guide §8) for always-on operation
 
-## 대시보드 (로컬 웹)
+## Dashboard (local web)
 
 ```
-.venv/bin/streamlit run dashboard/app.py   # 저장소 루트에서
+.venv/bin/streamlit run dashboard/app.py   # from the repo root
 ```
 
-[http://localhost:8501](http://localhost:8501) — 보유 현황·실질 노출·종목별 판정(체크업)·투자논리·알림/매매 이력.
-localhost 전용. 계좌 정보가 표시되므로 외부에 배포하지 않는다.
+[http://localhost:8501](http://localhost:8501) — holdings, effective exposure,
+per-ticker AI verdicts (checkup), investment theses, alert/trade history.
+localhost only: the dashboard shows the whole account, so never deploy it externally.
 
-포트폴리오 탭 — 보유 현황과 체크업 판정:
+Portfolio tab — holdings and checkup verdicts:
 
-![포트폴리오 탭](docs/images/dashboard-portfolio.png)
+![Portfolio tab](docs/images/dashboard-portfolio.png)
 
-종목 상세 탭 — 투자논리와 최근 판정:
+Ticker detail tab — investment thesis and latest verdict:
 
-![종목 상세 탭](docs/images/dashboard-detail.png)
+![Ticker detail tab](docs/images/dashboard-detail.png)
 
-이동평균 현황 — 보유 전 종목 자동 추적(5/20/60/120일, 배열·크로스):
+Moving averages — auto-tracked for every holding (5/20/60/120-day, stack & crosses):
 
-![이동평균 현황](docs/images/dashboard-ma.png)
+![Moving averages](docs/images/dashboard-ma.png)
 
-## 블로그 (만든 과정)
+## Blog posts (the build story)
 
 - [AI 멀티 에이전트로 주식비서 만들기](https://medium.com/@jaelim095/ai-%EB%A9%80%ED%8B%B0-%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%EB%A1%9C-%EC%A3%BC%EC%8B%9D%EB%B9%84%EC%84%9C-%EB%A7%8C%EB%93%A4%EA%B8%B0-2244199cf8f9)
 - [Building an AI Stock Assistant with Multi-Agents (EN)](https://medium.com/@jaelim095/building-an-ai-stock-assistant-with-multi-agents-0b7b7130439e)
 
-## 문서
+## Docs
 
-- 설계: `docs/02-design.md`
-- 사전조사(2026-07-15): `docs/01-research.md`
-- 셋업 가이드: `docs/03-setup-guide.md`
+- Design: `docs/02-design.md`
+- Prior research (2026-07-15): `docs/01-research.md`
+- Setup guide: `docs/03-setup-guide.md`
 
-## 테스트
+## Tests
 
 ```
 .venv/bin/pytest
 ```
 
-lot 판정 로직(`src/lot_engine.py`)은 순수 함수로 분리되어 있고,
-`tests/test_lot_engine.py`가 설계의 예시 시나리오를 그대로 재현한다.
+The lot decision logic (`src/lot_engine.py`) is pure functions, and
+`tests/test_lot_engine.py` replays the design doc's example scenarios verbatim.

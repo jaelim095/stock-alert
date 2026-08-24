@@ -1,8 +1,8 @@
-"""lot 판정 순수 로직 (docs/02-design.md 5·6절 구현).
+"""Pure lot-decision logic (implements docs/02-design.md §5-6).
 
-I/O 없음 — 시트/API 연동은 호출자(main) 몫. 표준 라이브러리만 사용.
-lot dict 키: lot_id, ticker, kind, base_date, base_price, qty, status,
-             last_price, change_pct, alert_state(dict), closed_reason
+No I/O — sheet/API wiring is the caller's (main) job. Standard library only.
+lot dict keys: lot_id, ticker, kind, base_date, base_price, qty, status,
+               last_price, change_pct, alert_state(dict), closed_reason
 """
 from datetime import datetime
 
@@ -13,7 +13,7 @@ ST_CLOSED = "종료"
 SIDE_BUY = "매수"
 SIDE_SELL = "매도"
 
-# 임계 판정 오차 허용 (예: 81*1.1=89.10000000000001 문제)
+# tolerance for threshold checks (e.g. the 81*1.1=89.10000000000001 problem)
 _EPS = 1e-6
 
 
@@ -39,7 +39,7 @@ def _seq_key(lot):
 
 
 def _new_lot_id(ticker, base_date, lots):
-    # max+1 발번: 사용자가 시트에서 행을 지워도 기존 lot_id와 중복되지 않게
+    # max+1 numbering: never collides with existing lot_ids even if the user deletes sheet rows
     prefix = f"{ticker}-{str(base_date).replace('-', '')}-"
     max_seq = 0
     for lot in lots:
@@ -69,7 +69,7 @@ def _make_lot(ticker, kind, base_date, base_price, qty, lots):
 
 
 def _close_sell_points(lots, ticker):
-    # 새 매수 체결 = 재매수 완료로 간주 → 그 종목의 매도기준점 전부 종료 (설계 5절)
+    # A new buy fill counts as re-buy complete → close all sell reference points (KIND_SELL) for the ticker (design doc §5)
     for sp in _active(lots, ticker, KIND_SELL):
         sp["status"] = ST_CLOSED
         sp["closed_reason"] = "재매수됨"
@@ -82,7 +82,7 @@ def _apply_buy(lots, trade, qty=None):
 
 
 def _match_sell(lots, trade, qty, ann):
-    """매도 수량을 매수lot에 매칭: 수량 정확 일치(최신 우선) → LIFO 분할."""
+    """Match sell quantity against buy lots: exact quantity match (newest first) → LIFO split."""
     buys = _active(lots, trade["ticker"], KIND_BUY)
     exact = [lot for lot in buys if int(lot["qty"]) == qty]
     if exact:
@@ -117,7 +117,7 @@ def _apply_sell(lots, trade, qty, ann):
 
 
 def _parse_matched(s):
-    """'lot_id:수량' 쉼표 목록 → [(lot_id, qty)]. 형식이 아니면 무시."""
+    """Comma-separated 'lot_id:qty' list → [(lot_id, qty)]. Non-conforming parts are ignored."""
     out = []
     for part in str(s or "").split(","):
         lot_id, _, q = part.strip().rpartition(":")
@@ -131,7 +131,7 @@ def _parse_matched(s):
 
 
 def _find_lot(lots, trade, kind):
-    """부분 체결 수량 보정용: 같은 종목·기준일·기준가의 활성 lot."""
+    """For partial-fill quantity corrections: the active lot with the same ticker, base date, and base price."""
     cands = [lot for lot in _active(lots, trade["ticker"], kind)
              if str(lot["base_date"]) == str(trade["trade_date"])
              and abs(float(lot["base_price"]) - float(trade["price"])) < 1e-9]
@@ -139,11 +139,11 @@ def _find_lot(lots, trade, kind):
 
 
 def process_trades(events, lots):
-    """신규 체결/수량증가 이벤트를 lots에 제자리 반영.
+    """Apply new-fill/quantity-increase events to lots in place.
 
-    events: 시간순 [{"type": "new"|"qty_update", "trade": {...},
-                    "old_qty": int, "prev_matched": "lot_id:수량,..."}]
-    반환: {order_no: {"matched_lots": "lot_id:수량,...", "note": str}}
+    events: in time order [{"type": "new"|"qty_update", "trade": {...},
+                            "old_qty": int, "prev_matched": "lot_id:qty,..."}]
+    Returns: {order_no: {"matched_lots": "lot_id:qty,...", "note": str}}
     """
     annotations = {}
     for ev in events:
@@ -159,15 +159,15 @@ def process_trades(events, lots):
             if delta <= 0:
                 continue
             if t["side"] == SIDE_BUY:
-                _close_sell_points(lots, t["ticker"])  # 추가 체결도 새 매수 체결이다
+                _close_sell_points(lots, t["ticker"])  # an additional fill is still a new buy fill
                 lot = _find_lot(lots, t, KIND_BUY)
                 if lot:
                     lot["qty"] = int(lot["qty"]) + delta
                 else:
                     _apply_buy(lots, t, qty=delta)
             else:
-                # 부분 체결 재매칭: 이 주문의 이전 매칭을 되돌리고
-                # 주문 누적 총수량 기준으로 다시 매칭한다 (설계 5절: 정확 일치는 주문 총수량 기준).
+                # Partial-fill rematch: undo this order's previous matches and
+                # rematch against the order's cumulative total quantity (design doc §5: exact match uses the order total).
                 total = int(t["qty"])
                 for lot_id, q in _parse_matched(ev.get("prev_matched", "")):
                     lot = next((l for l in lots if str(l["lot_id"]) == lot_id), None)
@@ -192,7 +192,7 @@ def process_trades(events, lots):
 
 
 def _stale(last_iso, now, remind_hours):
-    """조건이 유지 중일 때 리마인드 필요 여부. 기록이 없거나 깨졌으면 리마인드."""
+    """Whether a reminder is due while the condition persists. Remind if the record is missing or broken."""
     if not last_iso:
         return True
     try:
@@ -220,10 +220,10 @@ def _alert(lot, condition, price, chg, action, reminder):
 
 def evaluate(lots, prices, settings, now,
              default_drop=10.0, default_rise=10.0, remind_hours=24.0):
-    """활성 lot을 시세와 비교해 발송할 알림 목록을 만든다.
+    """Compare active lots with prices and build the list of alerts to send.
 
-    lots는 제자리 갱신(last_price, change_pct, alert_state).
-    prices: {ticker: float}. 시세가 없거나 0 이하면 그 lot은 이번 주기 스킵.
+    lots are updated in place (last_price, change_pct, alert_state).
+    prices: {ticker: float}. A lot is skipped this cycle if its price is missing or <= 0.
     settings: {ticker: {"drop_pct", "rise_pct", "enabled", ...}}
     """
     alerts = []
@@ -247,7 +247,7 @@ def evaluate(lots, prices, settings, now,
         st = lot.get("alert_state") or {}
         last = st.get("last_alert") or {}
 
-        # 하락(추가매수/재매수) — 계단식: -10%, -20%, -30% … 단계별 1회
+        # Drop (add-buy/re-buy) — stepped: -10%, -20%, -30% … once per step
         action = "추가매수" if lot["kind"] == KIND_BUY else "재매수"
         n = int(((base - price) / base) / (drop / 100.0) + _EPS)
         if n >= 1:
@@ -261,7 +261,7 @@ def evaluate(lots, prices, settings, now,
                 alerts.append(_alert(lot, f"리마인드({cond})", price, chg, action, reminder=True))
                 last["drop"] = now.isoformat()
 
-        # 상승(매도) — 매수lot만, 1회 + 리마인드
+        # Rise (sell) — buy lots only, once + reminder
         if lot["kind"] == KIND_BUY and price >= base * (1 + rise / 100.0) * (1 - _EPS):
             cond = f"매도+{rise:.0f}%"
             if not st.get("rise_alerted"):
@@ -310,7 +310,7 @@ def _summary_line(lots, ticker, price):
 
 
 def build_messages(alerts, lots, prices):
-    """종목별로 알림을 묶어 메시지 텍스트 생성 (설계 6절 형식)."""
+    """Group alerts per ticker and build the message text (design doc §6 format)."""
     by_ticker = {}
     for a in alerts:
         by_ticker.setdefault(a["ticker"], []).append(a)
