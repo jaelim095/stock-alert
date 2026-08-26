@@ -105,10 +105,41 @@ def daily_reconcile(dry):
             pass
 
 
+def daily_kakao_check(dry):
+    """Once a day: renew the Kakao token (keepalive) and warn ahead of the
+    60-day refresh-token expiry, before the channel dies silently."""
+    marker = ROOT / "data" / "kakao_check_last.txt"
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    try:
+        if marker.read_text().strip() == today:
+            return
+    except OSError:
+        pass
+    if dry:
+        _log("[dry-run] 카카오 토큰 점검 생략")
+        return
+    days = Notifier().refresh_days_left()
+    # Kakao only reports remaining lifetime within 30 days of expiry,
+    # so "unknown" here actually means more than 30 days of headroom.
+    _log("카카오 refresh 토큰 잔여 "
+         + (f"{days:.0f}일" if days is not None else "30일 이상(카카오 미보고 구간)"))
+    try:
+        marker.write_text(today)
+    except OSError:
+        pass
+    if days is not None and days <= 14 and not _throttled("kakao_expiry_warn_last.txt", 72 * 3600):
+        Notifier()._send_email(
+            f"[stock-alert] 카카오 재로그인 필요 — 만료 D-{int(days)}",
+            f"카카오 refresh 토큰이 약 {days:.0f}일 뒤 만료됩니다.\n"
+            "만료 전에 docs/03-setup-guide.md 2절 8~11번을 따라 재로그인하면\n"
+            "알림 중단 없이 60일이 연장됩니다.")
+
+
 def main():
     dry = "--dry-run" in sys.argv
     check_heartbeat(dry)
     daily_reconcile(dry)
+    daily_kakao_check(dry)
 
 
 if __name__ == "__main__":
