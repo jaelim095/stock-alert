@@ -44,9 +44,9 @@ class Notifier:
     def _load_tokens(self):
         return json.loads(self.tokens_path.read_text())
 
-    def _kakao_access_token(self):
+    def _kakao_access_token(self, force=False):
         tok = self._load_tokens()
-        if tok.get("expires_at", 0) > time.time() + 60:
+        if not force and tok.get("expires_at", 0) > time.time() + 60:
             return tok["access_token"]
         payload = {
             "grant_type": "refresh_token",
@@ -60,10 +60,28 @@ class Notifier:
         d = r.json()
         tok["access_token"] = d["access_token"]
         tok["expires_at"] = time.time() + int(d.get("expires_in", 21600))
+        if d.get("refresh_token_expires_in"):  # Kakao reports remaining refresh-token lifetime on every renewal
+            tok["refresh_expires_at"] = time.time() + int(d["refresh_token_expires_in"])
         if d.get("refresh_token"):  # only sent when expiry is under a month away — must be saved back
             tok["refresh_token"] = d["refresh_token"]
+            tok["refresh_issued_at"] = time.time()
         self.tokens_path.write_text(json.dumps(tok, ensure_ascii=False))
         return tok["access_token"]
+
+    def refresh_days_left(self):
+        """Force one token renewal and return days until the refresh token expires.
+
+        Token endpoint only — no message reaches the user. Returns None when the
+        lifetime is unknown or the renewal fails (failure also triggers the
+        re-login warning email).
+        """
+        try:
+            self._kakao_access_token(force=True)
+            exp = self._load_tokens().get("refresh_expires_at")
+            return (exp - time.time()) / 86400 if exp else None
+        except Exception as e:
+            self._warn_relogin(e)
+            return None
 
     def _warn_relogin(self, err):
         """Re-login warning email — throttled to 6 hours so it does not repeat for every alert."""
