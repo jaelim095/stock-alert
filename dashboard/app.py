@@ -664,6 +664,12 @@ with tab_div:
             st.error(f"{div_files[-1].name} 파싱 실패 — /dividends 재실행 필요")
         else:
             today_d = datetime.now(KST).date()
+            try:  # ex-dates go stale quietly — nudge a re-run past 30 days
+                age_days = (today_d - datetime.fromisoformat(div.get("as_of", "")).date()).days
+            except ValueError:
+                age_days = None
+            if age_days is not None and age_days > 30:
+                st.warning(f"이 배당 일정은 {age_days}일 전 조사입니다 — /dividends 재실행을 권장합니다")
             rows = []
             for e in div.get("events", []):
                 try:
