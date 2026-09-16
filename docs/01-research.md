@@ -221,3 +221,23 @@ Recommendation: for a small read-focused bot, either is fine. The official examp
 - Implementation: reference the official examples_llm and call requests directly (or use python-kis). Sheets via gspread + service account.
 - Alerts: KakaoTalk send-to-me (main) with a fallback channel for redundancy.
 - Must verify before starting: the body of the 2026-03-20 notice on per-second call limits for new customers, the exact paper-trading per-second limit, and — if using the daytime session — how those executions land in the execution history (empirical check).
+
+---
+
+## 5. Addendum — API coverage notes (2026-09)
+
+Findings from live probes against the real account, recorded for future feature work.
+
+- No cash deposit/withdrawal ledger API exists in the open API. Verified two ways:
+  the full official examples_llm catalog (1,647 files) contains no cash-ledger
+  endpoint (`inquire_deposit`-family TRs are futures/pension margin snapshots,
+  not histories), and a live CTOS4001R probe returned trade rows only — no
+  transfer/FX rows. Cash in/out history is only available in the app/HTS
+  transaction-history (account ledger) screen. (confirmed, live probe 2026-09-01)
+- CTOS4001R `inquire-period-trans` (overseas daily transaction history): per-trade
+  rows with fees and KRW settlement amounts; output2 carries period buy/sell/fee
+  totals. Useful for monthly trading summaries. (confirmed)
+- TTTS3039R `inquire-period-profit` (overseas period profit): official per-sale
+  realized P&L with moving-average cost basis, net of fees, USD or KRW view.
+  Validated against the account — matches manual reconstruction. A candidate
+  backend for a realized-P&L review feature. (confirmed, live probe 2026-09-03)
